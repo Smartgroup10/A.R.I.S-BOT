@@ -1,5 +1,5 @@
 # Stage 1 — Build frontend
-FROM node:20-alpine AS frontend
+FROM node:20-slim AS frontend
 
 WORKDIR /build
 
@@ -10,7 +10,7 @@ COPY client/ .
 RUN npm run build
 
 # Stage 2 — Production
-FROM node:20-alpine
+FROM node:20-slim
 
 WORKDIR /app
 
