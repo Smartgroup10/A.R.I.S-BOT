@@ -9,6 +9,7 @@ const rag = require('../services/rag');
 const bookstack = require('../services/bookstack');
 const fibras = require('../services/fibras');
 const crm = require('../services/crm');
+const teki = require('../services/teki');
 const db = require('../db');
 
 const router = express.Router();
@@ -232,7 +233,21 @@ router.post('/', async (req, res) => {
       searches.push(Promise.resolve(null));
     }
 
-    const [bookstackCtx, ragCtx, fibrasCtx, crmCtx, resolutionCtx, directTicketCtx, clientCtx] = await Promise.all(searches);
+    // Teki: desvíos de líneas fijas — if teki allowed
+    if (sourceAccess.teki && teki.isConfigured() && teki.mightBeAboutDesvios(message.trim())) {
+      searches.push(teki.getDesviosContext(message.trim()).catch(() => null));
+    } else {
+      searches.push(Promise.resolve(null));
+    }
+
+    // Teki: solicitudes de fibra — if teki allowed
+    if (sourceAccess.teki && teki.isConfigured() && teki.mightBeAboutTekiFibras(message.trim())) {
+      searches.push(teki.getTekiFibrasContext(message.trim()).catch(() => null));
+    } else {
+      searches.push(Promise.resolve(null));
+    }
+
+    const [bookstackCtx, ragCtx, fibrasCtx, crmCtx, resolutionCtx, directTicketCtx, clientCtx, desviosCtx, tekiFibrasCtx] = await Promise.all(searches);
 
     // Build source priority instructions
     const foundSources = [];
@@ -243,6 +258,8 @@ router.post('/', async (req, res) => {
     if (resolutionCtx) foundSources.push('Historial de resoluciones (Soporte)');
     if (directTicketCtx) foundSources.push('Detalle directo de ticket (CRM)');
     if (clientCtx) foundSources.push('Datos de Clientes (CRM)');
+    if (desviosCtx) foundSources.push('Desvíos de Líneas Fijas (Teki)');
+    if (tekiFibrasCtx) foundSources.push('Solicitudes de Fibra (Teki)');
 
     if (foundSources.length > 0) {
       systemPrompt += `\n---\n## JERARQUÍA DE FUENTES (OBLIGATORIO)\n\nSe encontró información en: **${foundSources.join(' y ')}**.\n\n**REGLAS DE PRIORIDAD:**\n1. **SIEMPRE usa primero la información de las fuentes internas** (Wiki y documentación) que se incluyen abajo.\n2. **NO des respuestas genéricas ni de internet** si hay información relevante en las fuentes internas.\n3. **Solo usa tu conocimiento general** si las fuentes internas NO contienen información relevante para la pregunta.\n4. Si la info interna es parcial, complémenta con tu conocimiento pero SIEMPRE indicando qué viene de la empresa y qué es información general.\n---\n`;
@@ -258,6 +275,8 @@ router.post('/', async (req, res) => {
     if (resolutionCtx) systemPrompt += resolutionCtx;
     if (directTicketCtx) systemPrompt += directTicketCtx;
     if (clientCtx) systemPrompt += clientCtx;
+    if (desviosCtx) systemPrompt += desviosCtx;
+    if (tekiFibrasCtx) systemPrompt += tekiFibrasCtx;
 
     // Smart history: check if user references past conversations
     let historyUsed = false;

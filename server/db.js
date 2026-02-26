@@ -150,7 +150,7 @@ async function initDb() {
   // Seed role_source_defaults if empty
   const rsdCount = db.exec('SELECT COUNT(*) FROM role_source_defaults');
   if (rsdCount.length === 0 || rsdCount[0].values[0][0] === 0) {
-    const sources = ['bookstack', 'rag', 'fibras', 'crm'];
+    const sources = ['bookstack', 'rag', 'fibras', 'crm', 'teki'];
     const roles = ['admin', 'user'];
     for (const role of roles) {
       for (const src of sources) {
@@ -568,7 +568,7 @@ function getEffectiveSourceAccess(userId, role) {
     result[d.source_key] = overrideMap[d.source_key] !== undefined ? !!overrideMap[d.source_key] : !!d.enabled;
   }
   // Ensure all 4 sources have a value
-  for (const key of ['bookstack', 'rag', 'fibras', 'crm']) {
+  for (const key of ['bookstack', 'rag', 'fibras', 'crm', 'teki']) {
     if (result[key] === undefined) {
       result[key] = overrideMap[key] !== undefined ? !!overrideMap[key] : true;
     }
