@@ -1,0 +1,106 @@
+@import "tailwindcss";
+
+html, body, #app {
+  height: 100%;
+  margin: 0;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 3px;
+}
+.dark ::-webkit-scrollbar-thumb {
+  background: #475569;
+}
+
+/* Markdown content styling */
+.markdown-content h1 { font-size: 1.5em; font-weight: 700; margin: 0.5em 0; }
+.markdown-content h2 { font-size: 1.25em; font-weight: 600; margin: 0.5em 0; }
+.markdown-content h3 { font-size: 1.1em; font-weight: 600; margin: 0.4em 0; }
+.markdown-content p { margin: 0.4em 0; }
+.markdown-content ul, .markdown-content ol { margin: 0.4em 0; padding-left: 1.5em; }
+.markdown-content li { margin: 0.2em 0; }
+.markdown-content code {
+  background: #f1f5f9;
+  padding: 0.15em 0.4em;
+  border-radius: 4px;
+  font-size: 0.9em;
+}
+.dark .markdown-content code {
+  background: #334155;
+}
+.markdown-content pre {
+  background: #1e293b;
+  color: #e2e8f0;
+  padding: 1em;
+  border-radius: 8px;
+  overflow-x: auto;
+  margin: 0.5em 0;
+}
+.markdown-content pre code {
+  background: transparent;
+  padding: 0;
+  color: inherit;
+}
+.markdown-content pre .copy-btn {
+  position: absolute;
+  top: 0.5em;
+  right: 0.5em;
+  padding: 0.2em 0.6em;
+  font-size: 0.75em;
+  background: #475569;
+  color: #e2e8f0;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+.markdown-content pre:hover .copy-btn {
+  opacity: 1;
+}
+.markdown-content pre .copy-btn:hover {
+  background: #64748b;
+}
+.markdown-content pre .copy-btn.copied {
+  background: #22c55e;
+  color: white;
+  opacity: 1;
+}
+.markdown-content table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 0.5em 0;
+}
+.markdown-content th, .markdown-content td {
+  border: 1px solid #e2e8f0;
+  padding: 0.4em 0.8em;
+  text-align: left;
+}
+.dark .markdown-content th, .dark .markdown-content td {
+  border-color: #475569;
+}
+.markdown-content th {
+  background: #f1f5f9;
+  font-weight: 600;
+}
+.dark .markdown-content th {
+  background: #334155;
+}
+.markdown-content strong { font-weight: 600; }
+.markdown-content blockquote {
+  border-left: 3px solid #06b6d4;
+  padding-left: 1em;
+  margin: 0.5em 0;
+  color: #64748b;
+}
+.dark .markdown-content blockquote {
+  color: #94a3b8;
+}

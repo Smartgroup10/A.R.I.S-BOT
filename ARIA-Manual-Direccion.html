@@ -1,0 +1,561 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ARIA — Manual de Presentación</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    background: #f8fafc;
+    color: #1e293b;
+    line-height: 1.7;
+  }
+
+  /* ─── HERO ─── */
+  .hero {
+    background: linear-gradient(135deg, #1a1f36 0%, #0f172a 50%, #1a1f36 100%);
+    color: white;
+    padding: 80px 40px;
+    text-align: center;
+    position: relative;
+    overflow: hidden;
+  }
+  .hero::before {
+    content: '';
+    position: absolute;
+    top: -50%; left: -50%;
+    width: 200%; height: 200%;
+    background: radial-gradient(circle at 30% 50%, rgba(34,211,238,0.08) 0%, transparent 50%),
+                radial-gradient(circle at 70% 50%, rgba(59,130,246,0.06) 0%, transparent 50%);
+    animation: pulse 8s ease-in-out infinite alternate;
+  }
+  @keyframes pulse {
+    0% { transform: scale(1); }
+    100% { transform: scale(1.05); }
+  }
+  .hero-content { position: relative; z-index: 1; max-width: 800px; margin: 0 auto; }
+  .hero img { width: 120px; height: 120px; border-radius: 50%; object-fit: cover; margin-bottom: 24px; box-shadow: 0 0 60px rgba(34,211,238,0.3); border: 3px solid rgba(34,211,238,0.3); }
+  .hero h1 { font-size: 3.5rem; font-weight: 800; letter-spacing: -1px; margin-bottom: 8px; }
+  .hero h1 span { background: linear-gradient(90deg, #22d3ee, #3b82f6); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+  .hero .subtitle { font-size: 1.15rem; color: #94a3b8; font-weight: 300; margin-bottom: 32px; }
+  .hero .badges { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+  .hero .badge { padding: 8px 20px; border-radius: 999px; font-size: 0.8rem; font-weight: 500; border: 1px solid rgba(255,255,255,0.15); background: rgba(255,255,255,0.05); backdrop-filter: blur(10px); }
+  .hero .badge.cyan { border-color: rgba(34,211,238,0.4); color: #67e8f9; }
+  .hero .badge.blue { border-color: rgba(59,130,246,0.4); color: #93c5fd; }
+
+  /* ─── SECTIONS ─── */
+  .container { max-width: 960px; margin: 0 auto; padding: 0 24px; }
+
+  section { padding: 64px 0; }
+  section:nth-child(even) { background: #f1f5f9; }
+
+  .section-header { text-align: center; margin-bottom: 48px; }
+  .section-header .tag { display: inline-block; padding: 4px 14px; border-radius: 999px; font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; background: #ecfeff; color: #0891b2; margin-bottom: 12px; }
+  .section-header h2 { font-size: 2rem; font-weight: 700; color: #0f172a; }
+  .section-header p { color: #64748b; margin-top: 8px; max-width: 600px; margin-left: auto; margin-right: auto; }
+
+  /* ─── CARDS ─── */
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 24px; }
+  .card {
+    background: white;
+    border-radius: 16px;
+    padding: 32px;
+    border: 1px solid #e2e8f0;
+    transition: transform 0.2s, box-shadow 0.2s;
+  }
+  .card:hover { transform: translateY(-4px); box-shadow: 0 12px 40px rgba(0,0,0,0.08); }
+  .card-icon {
+    width: 48px; height: 48px; border-radius: 12px; display: flex; align-items: center; justify-content: center;
+    margin-bottom: 16px; font-size: 1.4rem;
+  }
+  .card-icon.cyan { background: #ecfeff; color: #0891b2; }
+  .card-icon.blue { background: #eff6ff; color: #2563eb; }
+  .card-icon.green { background: #ecfdf5; color: #059669; }
+  .card-icon.purple { background: #f5f3ff; color: #7c3aed; }
+  .card-icon.amber { background: #fffbeb; color: #d97706; }
+  .card-icon.rose { background: #fff1f2; color: #e11d48; }
+  .card h3 { font-size: 1.1rem; font-weight: 600; margin-bottom: 8px; color: #0f172a; }
+  .card p { color: #64748b; font-size: 0.9rem; }
+
+  /* ─── FLOW ─── */
+  .flow { display: flex; align-items: center; justify-content: center; gap: 16px; flex-wrap: wrap; margin: 40px 0; }
+  .flow-step {
+    background: white; border: 1px solid #e2e8f0; border-radius: 12px;
+    padding: 20px 28px; text-align: center; min-width: 160px;
+  }
+  .flow-step .icon { font-size: 1.8rem; margin-bottom: 8px; }
+  .flow-step .label { font-size: 0.85rem; font-weight: 600; color: #0f172a; }
+  .flow-step .sub { font-size: 0.75rem; color: #94a3b8; }
+  .flow-arrow { font-size: 1.5rem; color: #22d3ee; font-weight: 700; }
+
+  /* ─── TABLE ─── */
+  .data-table { width: 100%; border-collapse: collapse; background: white; border-radius: 12px; overflow: hidden; border: 1px solid #e2e8f0; }
+  .data-table th { background: #1a1f36; color: white; padding: 14px 20px; text-align: left; font-size: 0.85rem; font-weight: 600; }
+  .data-table td { padding: 14px 20px; border-bottom: 1px solid #f1f5f9; font-size: 0.9rem; }
+  .data-table tr:last-child td { border-bottom: none; }
+  .data-table tr:hover td { background: #f8fafc; }
+  .check { color: #10b981; font-weight: 700; }
+  .secure { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; font-size: 0.75rem; font-weight: 500; background: #ecfdf5; color: #059669; }
+
+  /* ─── STATS ─── */
+  .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 24px; margin: 40px 0; }
+  .stat { text-align: center; }
+  .stat .number { font-size: 2.5rem; font-weight: 800; background: linear-gradient(135deg, #22d3ee, #3b82f6); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+  .stat .label { font-size: 0.85rem; color: #64748b; margin-top: 4px; }
+
+  /* ─── BENEFITS ─── */
+  .benefit-list { list-style: none; }
+  .benefit-list li {
+    display: flex; align-items: flex-start; gap: 16px;
+    padding: 20px 0; border-bottom: 1px solid #f1f5f9;
+  }
+  .benefit-list li:last-child { border-bottom: none; }
+  .benefit-check {
+    width: 28px; height: 28px; border-radius: 50%; background: #ecfdf5;
+    display: flex; align-items: center; justify-content: center; flex-shrink: 0; margin-top: 2px;
+    color: #10b981; font-size: 0.9rem; font-weight: 700;
+  }
+  .benefit-list strong { display: block; color: #0f172a; margin-bottom: 2px; }
+  .benefit-list span { color: #64748b; font-size: 0.9rem; }
+
+  /* ─── USE CASES ─── */
+  .use-case {
+    background: white; border-radius: 12px; border: 1px solid #e2e8f0;
+    padding: 24px; margin-bottom: 16px;
+  }
+  .use-case .question { font-weight: 600; color: #1a1f36; margin-bottom: 8px; font-size: 0.95rem; }
+  .use-case .question::before { content: '💬 '; }
+  .use-case .answer { color: #64748b; font-size: 0.88rem; padding-left: 28px; border-left: 3px solid #22d3ee; }
+
+  /* ─── SECURITY ─── */
+  .security-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px; }
+  .security-item {
+    display: flex; gap: 14px; align-items: flex-start;
+    background: white; border-radius: 12px; padding: 20px; border: 1px solid #e2e8f0;
+  }
+  .security-item .icon { font-size: 1.5rem; flex-shrink: 0; }
+  .security-item strong { display: block; font-size: 0.9rem; color: #0f172a; }
+  .security-item span { font-size: 0.8rem; color: #64748b; }
+
+  /* ─── CTA ─── */
+  .cta {
+    background: linear-gradient(135deg, #1a1f36, #0f172a);
+    color: white; padding: 80px 40px; text-align: center;
+  }
+  .cta h2 { font-size: 2rem; font-weight: 700; margin-bottom: 12px; }
+  .cta p { color: #94a3b8; max-width: 500px; margin: 0 auto 32px; }
+  .cta .btn {
+    display: inline-block; padding: 14px 40px; border-radius: 12px;
+    background: linear-gradient(135deg, #22d3ee, #3b82f6); color: white;
+    font-weight: 600; font-size: 1rem; text-decoration: none;
+    transition: transform 0.2s, box-shadow 0.2s;
+  }
+  .cta .btn:hover { transform: translateY(-2px); box-shadow: 0 8px 30px rgba(34,211,238,0.3); }
+
+  /* ─── FOOTER ─── */
+  footer { text-align: center; padding: 32px; color: #94a3b8; font-size: 0.8rem; }
+
+  /* ─── PRINT ─── */
+  @media print {
+    .hero { padding: 40px 20px; }
+    .card:hover { transform: none; box-shadow: none; }
+    section { padding: 32px 0; }
+  }
+
+  @media (max-width: 768px) {
+    .hero h1 { font-size: 2.2rem; }
+    .stats { grid-template-columns: repeat(2, 1fr); }
+    .security-grid { grid-template-columns: 1fr; }
+    .flow { flex-direction: column; }
+    .flow-arrow { transform: rotate(90deg); }
+  }
+</style>
+</head>
+<body>
+
+<!-- ═══════════════ HERO ═══════════════ -->
+<div class="hero">
+  <div class="hero-content">
+    <img src="client/public/aria-logo.png" alt="ARIA">
+    <h1><span>ARIA</span></h1>
+    <div class="subtitle">Asistente de Recursos e Informaci&oacute;n ALPHA</div>
+    <p style="color:#cbd5e1; margin-bottom:32px; font-size:1rem;">
+      Plataforma de inteligencia artificial corporativa que centraliza el conocimiento interno,
+      gestiona tickets del CRM y asiste a los empleados en tiempo real.
+    </p>
+    <div class="badges">
+      <span class="badge cyan">IA Generativa (Claude)</span>
+      <span class="badge blue">CRM Integrado</span>
+      <span class="badge cyan">Wiki Corporativa</span>
+      <span class="badge blue">Gesti&oacute;n de Fibras</span>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════ QUÉ ES ═══════════════ -->
+<section>
+  <div class="container">
+    <div class="section-header">
+      <span class="tag">Visi&oacute;n General</span>
+      <h2>&iquest;Qu&eacute; es ARIA?</h2>
+      <p>Un asistente inteligente dise&ntilde;ado espec&iacute;ficamente para SmartGroup que conecta todas las fuentes de informaci&oacute;n internas en un &uacute;nico punto de consulta.</p>
+    </div>
+
+    <div class="flow">
+      <div class="flow-step">
+        <div class="icon">💬</div>
+        <div class="label">Empleado pregunta</div>
+        <div class="sub">en lenguaje natural</div>
+      </div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="flow-step">
+        <div class="icon">🔍</div>
+        <div class="label">ARIA busca</div>
+        <div class="sub">en 5 fuentes simult&aacute;neas</div>
+      </div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="flow-step">
+        <div class="icon">🧠</div>
+        <div class="label">IA procesa</div>
+        <div class="sub">Claude analiza contexto</div>
+      </div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="flow-step">
+        <div class="icon">✅</div>
+        <div class="label">Respuesta precisa</div>
+        <div class="sub">con datos reales del CRM</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════ FUENTES ═══════════════ -->
+<section>
+  <div class="container">
+    <div class="section-header">
+      <span class="tag">Integraciones</span>
+      <h2>Fuentes de Datos Conectadas</h2>
+      <p>ARIA consulta m&uacute;ltiples sistemas en paralelo para ofrecer respuestas completas y contextualizadas.</p>
+    </div>
+
+    <div class="cards">
+      <div class="card">
+        <div class="card-icon cyan">📋</div>
+        <h3>CRM JD Systems (Tickets)</h3>
+        <p>Acceso completo a tickets abiertos y cerrados. B&uacute;squeda por n&uacute;mero, cliente, estado o descripci&oacute;n. Detalle con seguimiento interno y historial de acciones.</p>
+      </div>
+      <div class="card">
+        <div class="card-icon blue">🔧</div>
+        <h3>Resoluci&oacute;n de Incidencias</h3>
+        <p>Busca autom&aacute;ticamente en el historial de ~1.880 tickets cerrados de Soporte para sugerir soluciones basadas en casos reales previos.</p>
+      </div>
+      <div class="card">
+        <div class="card-icon green">👥</div>
+        <h3>B&uacute;squeda de Clientes</h3>
+        <p>Consulta de clientes por tel&eacute;fono, CIF o nombre. Identifica titularidad de numeraciones, n&uacute;mero de l&iacute;neas, estado y distribuidor.</p>
+      </div>
+      <div class="card">
+        <div class="card-icon purple">📚</div>
+        <h3>Wiki Corporativa (BookStack)</h3>
+        <p>B&uacute;squeda inteligente en toda la documentaci&oacute;n de la wiki interna. Procedimientos, gu&iacute;as, pol&iacute;ticas y manuales t&eacute;cnicos.</p>
+      </div>
+      <div class="card">
+        <div class="card-icon amber">🌐</div>
+        <h3>Sistema de Fibras</h3>
+        <p>Consulta de conectividad: datos de fibra por proveedor, cliente, IP, estado de servicio. Informaci&oacute;n t&eacute;cnica de las 46 p&aacute;ginas del dashboard.</p>
+      </div>
+      <div class="card">
+        <div class="card-icon rose">📄</div>
+        <h3>Documentaci&oacute;n Local (RAG)</h3>
+        <p>167 fragmentos indexados de PDFs y documentos internos. B&uacute;squeda sem&aacute;ntica con embeddings de IA para encontrar informaci&oacute;n relevante.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════ NÚMEROS ═══════════════ -->
+<section>
+  <div class="container">
+    <div class="section-header">
+      <span class="tag">Datos</span>
+      <h2>ARIA en N&uacute;meros</h2>
+    </div>
+
+    <div class="stats">
+      <div class="stat">
+        <div class="number">5</div>
+        <div class="label">Fuentes de datos<br>integradas</div>
+      </div>
+      <div class="stat">
+        <div class="number">~174</div>
+        <div class="label">Tickets abiertos<br>consultables</div>
+      </div>
+      <div class="stat">
+        <div class="number">~1.880</div>
+        <div class="label">Tickets cerrados<br>con soluciones</div>
+      </div>
+      <div class="stat">
+        <div class="number">167</div>
+        <div class="label">Fragmentos<br>documentaci&oacute;n RAG</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════ CASOS DE USO ═══════════════ -->
+<section>
+  <div class="container">
+    <div class="section-header">
+      <span class="tag">Ejemplos Reales</span>
+      <h2>Casos de Uso</h2>
+      <p>Ejemplos reales de c&oacute;mo los empleados pueden utilizar ARIA en su d&iacute;a a d&iacute;a.</p>
+    </div>
+
+    <div class="use-case">
+      <div class="question">A qui&eacute;n pertenece el n&uacute;mero 917374206?</div>
+      <div class="answer">ARIA busca en el CRM y responde: <em>"Seg&uacute;n el CRM, el n&uacute;mero 917374206 pertenece a <strong>SMARTGROUP VOIP SERVICES, S.L.</strong> (CIF B85928216), cliente activo con 872 l&iacute;neas."</em></div>
+    </div>
+
+    <div class="use-case">
+      <div class="question">Dame los detalles del ticket 16648</div>
+      <div class="answer">ARIA carga el detalle completo del CRM: cliente, descripci&oacute;n del problema, soluci&oacute;n aplicada, seguimiento interno y todo el historial de acciones con fechas y responsables.</div>
+    </div>
+
+    <div class="use-case">
+      <div class="question">Un cliente no tiene tono, &iquest;c&oacute;mo lo resuelvo?</div>
+      <div class="answer">ARIA busca en los ~1.880 tickets cerrados de Soporte, encuentra casos similares y sugiere pasos de resoluci&oacute;n basados en lo que funcion&oacute; anteriormente, citando los n&uacute;meros de ticket exactos.</div>
+    </div>
+
+    <div class="use-case">
+      <div class="question">&iquest;Cu&aacute;ntos tickets abiertos tenemos?</div>
+      <div class="answer">ARIA consulta el CRM en tiempo real y muestra estad&iacute;sticas: total por estado (En operador, En espera, Cerrado...), por &aacute;rea, por perfil y por tema.</div>
+    </div>
+
+    <div class="use-case">
+      <div class="question">&iquest;Cu&aacute;l es el procedimiento para dar de alta una l&iacute;nea?</div>
+      <div class="answer">ARIA busca en la Wiki corporativa (BookStack) y en la documentaci&oacute;n local, devolviendo el procedimiento exacto documentado internamente.</div>
+    </div>
+
+    <div class="use-case">
+      <div class="question">&iquest;Qu&eacute; fibra tiene el cliente X?</div>
+      <div class="answer">ARIA consulta el sistema de Fibras y devuelve: proveedor, IP, estado del servicio y datos t&eacute;cnicos de conectividad.</div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════ BENEFICIOS ═══════════════ -->
+<section>
+  <div class="container">
+    <div class="section-header">
+      <span class="tag">Valor</span>
+      <h2>Beneficios para la Empresa</h2>
+    </div>
+
+    <ul class="benefit-list">
+      <li>
+        <div class="benefit-check">&check;</div>
+        <div>
+          <strong>Reducci&oacute;n de tiempo de b&uacute;squeda</strong>
+          <span>Los empleados dejan de buscar en m&uacute;ltiples sistemas (CRM, Wiki, documentos, Fibras). Una sola pregunta en ARIA reemplaza 4-5 consultas manuales.</span>
+        </div>
+      </li>
+      <li>
+        <div class="benefit-check">&check;</div>
+        <div>
+          <strong>Resoluci&oacute;n de incidencias m&aacute;s r&aacute;pida</strong>
+          <span>Al sugerir soluciones basadas en casos reales previos, los t&eacute;cnicos resuelven problemas sin tener que escalar ni buscar en el historial manualmente.</span>
+        </div>
+      </li>
+      <li>
+        <div class="benefit-check">&check;</div>
+        <div>
+          <strong>Conocimiento que no se pierde</strong>
+          <span>La experiencia acumulada en tickets cerrados, wikis y documentos queda accesible para todos, incluso cuando un empleado clave no est&aacute; disponible.</span>
+        </div>
+      </li>
+      <li>
+        <div class="benefit-check">&check;</div>
+        <div>
+          <strong>Onboarding acelerado</strong>
+          <span>Los empleados nuevos pueden consultar procedimientos, pol&iacute;ticas y resolver dudas sin depender constantemente de sus compa&ntilde;eros.</span>
+        </div>
+      </li>
+      <li>
+        <div class="benefit-check">&check;</div>
+        <div>
+          <strong>Datos siempre actualizados</strong>
+          <span>ARIA consulta los sistemas en tiempo real (CRM cada 5 min, Fibras en vivo). No trabaja con informaci&oacute;n obsoleta.</span>
+        </div>
+      </li>
+      <li>
+        <div class="benefit-check">&check;</div>
+        <div>
+          <strong>Sin inventar datos</strong>
+          <span>El sistema tiene instrucciones estrictas de solo usar datos reales del CRM. Nunca inventa n&uacute;meros de ticket, clientes ni soluciones.</span>
+        </div>
+      </li>
+    </ul>
+  </div>
+</section>
+
+<!-- ═══════════════ SEGURIDAD ═══════════════ -->
+<section>
+  <div class="container">
+    <div class="section-header">
+      <span class="tag">Seguridad</span>
+      <h2>Privacidad y Control de Acceso</h2>
+      <p>ARIA est&aacute; dise&ntilde;ado con la seguridad corporativa como prioridad.</p>
+    </div>
+
+    <div class="security-grid">
+      <div class="security-item">
+        <div class="icon">🔐</div>
+        <div>
+          <strong>Acceso solo con correo corporativo</strong>
+          <span>Solo se permiten dominios @smartgroup.es, @asociatel.es y @go-red.es. Sin acceso externo.</span>
+        </div>
+      </div>
+      <div class="security-item">
+        <div class="icon">👤</div>
+        <div>
+          <strong>Autenticaci&oacute;n por usuario</strong>
+          <span>Cada empleado tiene su cuenta con nombre, departamento y sede. Las conversaciones son privadas por usuario.</span>
+        </div>
+      </div>
+      <div class="security-item">
+        <div class="icon">🏢</div>
+        <div>
+          <strong>Datos internos, nunca en la nube p&uacute;blica</strong>
+          <span>La informaci&oacute;n del CRM, Wiki y Fibras se procesa internamente. Solo se env&iacute;a a la IA como contexto temporal de la conversaci&oacute;n.</span>
+        </div>
+      </div>
+      <div class="security-item">
+        <div class="icon">📊</div>
+        <div>
+          <strong>Trazabilidad</strong>
+          <span>Todas las conversaciones quedan registradas por usuario. Se puede auditar qu&eacute; consultas se realizaron y cu&aacute;ndo.</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════ COMPARATIVA ═══════════════ -->
+<section>
+  <div class="container">
+    <div class="section-header">
+      <span class="tag">Comparativa</span>
+      <h2>ARIA vs. M&eacute;todos Actuales</h2>
+    </div>
+
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Tarea</th>
+          <th>Sin ARIA</th>
+          <th>Con ARIA</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>Buscar info de un ticket</strong></td>
+          <td>Abrir CRM &rarr; navegar &rarr; buscar &rarr; leer (2-5 min)</td>
+          <td><span class="check">&quot;Ticket 16648&quot; &rarr; respuesta completa (5 seg)</span></td>
+        </tr>
+        <tr>
+          <td><strong>Identificar titularidad de n&uacute;mero</strong></td>
+          <td>Abrir CRM &rarr; secci&oacute;n clientes &rarr; buscar (3-5 min)</td>
+          <td><span class="check">&quot;A qui&eacute;n pertenece 917374206&quot; (5 seg)</span></td>
+        </tr>
+        <tr>
+          <td><strong>Resolver incidencia similar</strong></td>
+          <td>Buscar en historial &rarr; leer tickets pasados (10-30 min)</td>
+          <td><span class="check">&quot;No tiene tono&quot; &rarr; soluci&oacute;n sugerida (10 seg)</span></td>
+        </tr>
+        <tr>
+          <td><strong>Consultar procedimiento</strong></td>
+          <td>Buscar en Wiki/docs &rarr; navegar &rarr; leer (5-10 min)</td>
+          <td><span class="check">Pregunta directa &rarr; pasos concretos (5 seg)</span></td>
+        </tr>
+        <tr>
+          <td><strong>Consultar datos de fibra</strong></td>
+          <td>Abrir dashboard &rarr; buscar cliente (3-5 min)</td>
+          <td><span class="check">&quot;Fibra de cliente X&quot; (5 seg)</span></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ═══════════════ TÉCNICO (BREVE) ═══════════════ -->
+<section>
+  <div class="container">
+    <div class="section-header">
+      <span class="tag">T&eacute;cnico</span>
+      <h2>Arquitectura (Resumen)</h2>
+    </div>
+
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Componente</th>
+          <th>Tecnolog&iacute;a</th>
+          <th>Descripci&oacute;n</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>Frontend</strong></td>
+          <td>Vue 3 + TailwindCSS</td>
+          <td>Interfaz web moderna, responsive, modo oscuro</td>
+        </tr>
+        <tr>
+          <td><strong>Backend</strong></td>
+          <td>Node.js (Express)</td>
+          <td>API REST con autenticaci&oacute;n JWT</td>
+        </tr>
+        <tr>
+          <td><strong>Base de datos</strong></td>
+          <td>SQLite</td>
+          <td>Usuarios, conversaciones, feedback, adjuntos</td>
+        </tr>
+        <tr>
+          <td><strong>IA</strong></td>
+          <td>Claude (Anthropic)</td>
+          <td>Modelo de lenguaje avanzado con streaming</td>
+        </tr>
+        <tr>
+          <td><strong>RAG</strong></td>
+          <td>HuggingFace Embeddings</td>
+          <td>B&uacute;squeda sem&aacute;ntica en documentos locales</td>
+        </tr>
+        <tr>
+          <td><strong>Integraciones</strong></td>
+          <td>CRM JDS, BookStack, Fibras API</td>
+          <td>Conexi&oacute;n en tiempo real con sistemas internos</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ═══════════════ CTA ═══════════════ -->
+<div class="cta">
+  <img src="client/public/aria-logo.png" alt="ARIA" style="width:80px; height:80px; border-radius:50%; object-fit:cover; margin-bottom:24px; box-shadow: 0 0 40px rgba(34,211,238,0.25);">
+  <h2>ARIA est&aacute; lista para SmartGroup</h2>
+  <p>Una herramienta construida a medida que crece con las necesidades de la empresa.</p>
+  <a href="http://localhost:3080" class="btn">Probar ARIA &rarr;</a>
+</div>
+
+<footer>
+  <p>ARIA &mdash; Asistente de Recursos e Informaci&oacute;n ALPHA &mdash; SmartGroup &copy; 2026</p>
+  <p style="margin-top:4px;">Desarrollado por el departamento de IT</p>
+</footer>
+
+</body>
+</html>
