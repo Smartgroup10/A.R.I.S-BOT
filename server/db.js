@@ -2,6 +2,7 @@ const initSqlJs = require('sql.js');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const bcrypt = require('bcryptjs');
 
 const DB_DIR = process.env.DB_DIR || path.join(__dirname, '..');
 const DB_PATH = path.join(DB_DIR, 'assistant.db');
@@ -156,6 +157,20 @@ async function initDb() {
         db.run('INSERT OR IGNORE INTO role_source_defaults (role, source_key, enabled) VALUES (?, ?, 1)', [role, src]);
       }
     }
+  }
+
+  // Seed default admin if no users exist
+  const userCount = db.exec('SELECT COUNT(*) FROM users');
+  if (userCount.length === 0 || userCount[0].values[0][0] === 0) {
+    const adminEmail = (process.env.ADMIN_EMAIL || 'stefano.yepez@smartgroup.es').toLowerCase();
+    const adminPass = process.env.ADMIN_PASSWORD || 'Smart.2018';
+    const adminName = process.env.ADMIN_NAME || 'Stefano Yepez';
+    const hash = bcrypt.hashSync(adminPass, 10);
+    db.run(
+      'INSERT INTO users (email, name, password_hash, department, sede, role, active) VALUES (?, ?, ?, ?, ?, ?, 1)',
+      [adminEmail, adminName, hash, 'IT', 'Madrid', 'admin']
+    );
+    console.log(`Default admin created: ${adminEmail}`);
   }
 
   save();
