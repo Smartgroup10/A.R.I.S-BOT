@@ -3,7 +3,8 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 
-const DB_PATH = path.join(__dirname, '..', 'assistant.db');
+const DB_DIR = process.env.DB_DIR || path.join(__dirname, '..');
+const DB_PATH = path.join(DB_DIR, 'assistant.db');
 
 let db = null;
 
