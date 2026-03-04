@@ -31,6 +31,26 @@ const upload = multer({
   limits: { fileSize: 10 * 1024 * 1024 } // 10MB
 });
 
+// Simple messages that don't need external searches
+const SIMPLE_PATTERNS = [
+  /^(hola|hey|buenas|buenos d[ií]as|buenas tardes|buenas noches|qu[eé] tal|saludos)[\s!.?]*$/i,
+  /^(gracias|muchas gracias|ok|vale|perfecto|entendido|genial|de acuerdo)[\s!.?]*$/i,
+  /^(s[ií]|no|claro|dale|adelante|confirmo|exacto)[\s!.?]*$/i,
+  /^(adi[oó]s|hasta luego|nos vemos|chao)[\s!.?]*$/i
+];
+
+function isSimpleMessage(message) {
+  return SIMPLE_PATTERNS.some(p => p.test(message.trim()));
+}
+
+// Wrap a promise with a timeout (returns null on timeout)
+function withTimeout(promise, ms) {
+  return Promise.race([
+    promise,
+    new Promise(resolve => setTimeout(() => resolve(null), ms))
+  ]);
+}
+
 // Regex patterns that indicate the user is referencing past conversations
 const HISTORY_PATTERNS = [
   /la otra vez/i,
@@ -186,75 +206,74 @@ router.post('/', async (req, res) => {
     // Get system prompt with user context + RAG context
     let systemPrompt = getSystemPrompt(userContext);
 
+    // Set up SSE early — so the client sees activity immediately
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no');
+
+    // Send conversation ID first
+    safeWrite(`data: ${JSON.stringify({ type: 'conversation_id', id: convId })}\n\n`);
+
     // Get effective source access for this user
     const sourceAccess = db.getEffectiveSourceAccess(req.user.id, req.user.role);
 
-    // Search relevant documents — BookStack is PRIMARY, RAG is secondary, Fibras for connectivity
+    // Skip external searches for simple messages (greetings, confirmations, etc.)
+    const SEARCH_TIMEOUT = 8000; // 8s max per search
+    const msg = message.trim();
+    const skipSearches = isSimpleMessage(msg);
+
     const ragStats = rag.getStats();
     const searches = [];
 
-    // Always search BookStack first (primary source) — if allowed
-    if (sourceAccess.bookstack) {
-      searches.push(bookstack.getRelevantContext(message.trim()).catch(() => null));
-    } else {
-      searches.push(Promise.resolve(null));
-    }
+    if (!skipSearches) {
+      // BookStack (primary source)
+      searches.push(sourceAccess.bookstack
+        ? withTimeout(bookstack.getRelevantContext(msg).catch(() => null), SEARCH_TIMEOUT)
+        : Promise.resolve(null));
 
-    // Also search RAG if indexed docs exist (secondary source) — if allowed
-    if (sourceAccess.rag && ragStats.totalChunks > 0) {
-      searches.push(rag.getRelevantContext(message.trim()).catch(() => null));
-    } else {
-      searches.push(Promise.resolve(null));
-    }
+      // RAG (secondary source)
+      searches.push(sourceAccess.rag && ragStats.totalChunks > 0
+        ? withTimeout(rag.getRelevantContext(msg).catch(() => null), SEARCH_TIMEOUT)
+        : Promise.resolve(null));
 
-    // Search Fibras if the message might be about connectivity — if allowed
-    if (sourceAccess.fibras && fibras.isConfigured() && fibras.mightBeAboutFibras(message.trim())) {
-      searches.push(fibras.getRelevantContext(message.trim()).catch(() => null));
-    } else {
-      searches.push(Promise.resolve(null));
-    }
+      // Fibras
+      searches.push(sourceAccess.fibras && fibras.isConfigured() && fibras.mightBeAboutFibras(msg)
+        ? withTimeout(fibras.getRelevantContext(msg).catch(() => null), SEARCH_TIMEOUT)
+        : Promise.resolve(null));
 
-    // Search CRM if the message might be about tickets/incidents — if allowed
-    if (sourceAccess.crm && crm.isConfigured() && crm.mightBeAboutCRM(message.trim())) {
-      searches.push(crm.getRelevantContext(message.trim()).catch(() => null));
-    } else {
-      searches.push(Promise.resolve(null));
-    }
+      // CRM tickets
+      searches.push(sourceAccess.crm && crm.isConfigured() && crm.mightBeAboutCRM(msg)
+        ? withTimeout(crm.getRelevantContext(msg).catch(() => null), SEARCH_TIMEOUT)
+        : Promise.resolve(null));
 
-    // Search closed Soporte tickets if user needs help resolving an incident — if CRM allowed
-    if (sourceAccess.crm && crm.isConfigured() && crm.mightNeedResolution(message.trim())) {
-      searches.push(crm.getResolutionContext(message.trim()).catch(() => null));
-    } else {
-      searches.push(Promise.resolve(null));
-    }
+      // Resolution context
+      searches.push(sourceAccess.crm && crm.isConfigured() && crm.mightNeedResolution(msg)
+        ? withTimeout(crm.getResolutionContext(msg).catch(() => null), SEARCH_TIMEOUT)
+        : Promise.resolve(null));
 
-    // Direct ticket lookup by number (e.g. "ticket 16648", "#16648") — if CRM allowed
-    const directTicketId = (sourceAccess.crm && crm.isConfigured()) ? crm.extractTicketNumber(message.trim()) : null;
-    if (directTicketId) {
-      searches.push(crm.getDirectTicketContext(directTicketId).catch(() => null));
-    } else {
-      searches.push(Promise.resolve(null));
-    }
+      // Direct ticket lookup
+      const directTicketId = (sourceAccess.crm && crm.isConfigured()) ? crm.extractTicketNumber(msg) : null;
+      searches.push(directTicketId
+        ? withTimeout(crm.getDirectTicketContext(directTicketId).catch(() => null), SEARCH_TIMEOUT)
+        : Promise.resolve(null));
 
-    // Client search (phone, CIF, name) — if CRM allowed
-    if (sourceAccess.crm && crm.isConfigured() && crm.mightBeAboutClient(message.trim())) {
-      searches.push(crm.getClientContext(message.trim()).catch(() => null));
-    } else {
-      searches.push(Promise.resolve(null));
-    }
+      // Client search
+      searches.push(sourceAccess.crm && crm.isConfigured() && crm.mightBeAboutClient(msg)
+        ? withTimeout(crm.getClientContext(msg).catch(() => null), SEARCH_TIMEOUT)
+        : Promise.resolve(null));
 
-    // Teki: desvíos de líneas fijas — if teki allowed
-    if (sourceAccess.teki && teki.isConfigured() && teki.mightBeAboutDesvios(message.trim())) {
-      searches.push(teki.getDesviosContext(message.trim()).catch(() => null));
-    } else {
-      searches.push(Promise.resolve(null));
-    }
+      // Teki desvíos
+      searches.push(sourceAccess.teki && teki.isConfigured() && teki.mightBeAboutDesvios(msg)
+        ? withTimeout(teki.getDesviosContext(msg).catch(() => null), SEARCH_TIMEOUT)
+        : Promise.resolve(null));
 
-    // Teki: solicitudes de fibra — if teki allowed
-    if (sourceAccess.teki && teki.isConfigured() && teki.mightBeAboutTekiFibras(message.trim())) {
-      searches.push(teki.getTekiFibrasContext(message.trim()).catch(() => null));
+      // Teki fibras
+      searches.push(sourceAccess.teki && teki.isConfigured() && teki.mightBeAboutTekiFibras(msg)
+        ? withTimeout(teki.getTekiFibrasContext(msg).catch(() => null), SEARCH_TIMEOUT)
+        : Promise.resolve(null));
     } else {
-      searches.push(Promise.resolve(null));
+      for (let i = 0; i < 9; i++) searches.push(Promise.resolve(null));
     }
 
     const [bookstackCtx, ragCtx, fibrasCtx, crmCtx, resolutionCtx, directTicketCtx, clientCtx, desviosCtx, tekiFibrasCtx] = await Promise.all(searches);
@@ -303,15 +322,6 @@ router.post('/', async (req, res) => {
         systemPrompt += historyCtx;
       }
     }
-
-    // Set up SSE
-    res.setHeader('Content-Type', 'text/event-stream');
-    res.setHeader('Cache-Control', 'no-cache');
-    res.setHeader('Connection', 'keep-alive');
-    res.setHeader('X-Accel-Buffering', 'no');
-
-    // Send conversation ID first
-    safeWrite(`data: ${JSON.stringify({ type: 'conversation_id', id: convId })}\n\n`);
 
     // Notify if history context was used
     if (historyUsed) {
@@ -434,19 +444,21 @@ router.post('/', async (req, res) => {
         db.addMessage(convId, 'assistant', fullResponse);
       }
 
-      // Generate title for new conversations
+      // Generate title in background (don't block the response)
       if (isNew) {
-        try {
-          const title = await generateTitle(message.trim());
+        generateTitle(message.trim()).then(title => {
           db.updateConversationTitle(convId, title);
           safeWrite(`data: ${JSON.stringify({ type: 'title', title })}\n\n`);
-        } catch (e) {
-          console.error('Error generating title:', e.message);
-        }
+          safeWrite(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
+          safeEnd();
+        }).catch(() => {
+          safeWrite(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
+          safeEnd();
+        });
+      } else {
+        safeWrite(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
+        safeEnd();
       }
-
-      safeWrite(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
-      safeEnd();
     } catch (error) {
       console.error('Stream error:', error.message, error.stack);
       safeWrite(`data: ${JSON.stringify({ type: 'error', message: error.message })}\n\n`);

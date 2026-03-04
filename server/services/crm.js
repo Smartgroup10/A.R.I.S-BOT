@@ -857,14 +857,14 @@ async function getRelevantContext(message) {
     const results = await searchTickets(message, 15);
     if (results.length === 0) return null;
 
-    // Fetch detail (seguimiento + notas) for top 5 tickets
-    const top5 = results.slice(0, 5);
+    // Fetch detail (seguimiento + notas) for top 3 tickets
+    const top3 = results.slice(0, 3);
     const details = await Promise.all(
-      top5.map(t => fetchTicketDetail(t.id).catch(() => null))
+      top3.map(t => fetchTicketDetail(t.id).catch(() => null))
     );
     const detailMap = {};
-    for (let i = 0; i < top5.length; i++) {
-      if (details[i]) detailMap[top5[i].id] = details[i];
+    for (let i = 0; i < top3.length; i++) {
+      if (details[i]) detailMap[top3[i].id] = details[i];
     }
 
     let context = '\n---\n## Datos del CRM - Tickets ALPHA\n\n';
