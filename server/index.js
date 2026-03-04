@@ -4,7 +4,7 @@ require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
-const rateLimit = require('express-rate-limit');
+const { rateLimit } = require('express-rate-limit');
 const { initDb } = require('./db');
 const { loadSystemPrompt } = require('./system-prompt');
 const rag = require('./services/rag');
