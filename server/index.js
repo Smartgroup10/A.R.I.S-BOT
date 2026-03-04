@@ -52,7 +52,7 @@ const loginLimiter = rateLimit({
   message: { error: 'Demasiados intentos. Espera 15 minutos.' },
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: (req) => req.ip
+  validate: { xForwardedForHeader: false }
 });
 
 // Rate limiting — chat: 40 requests per minute per user
@@ -62,7 +62,8 @@ const chatLimiter = rateLimit({
   message: { error: 'Demasiadas solicitudes. Espera un momento.' },
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: (req) => req.user?.id || req.ip
+  keyGenerator: (req) => String(req.user?.id || 'anon'),
+  validate: { xForwardedForHeader: false }
 });
 
 // Public auth routes (with login rate limiting)
