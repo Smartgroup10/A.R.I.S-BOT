@@ -10,7 +10,8 @@ const sourceLabels = {
   bookstack: 'BookStack (Wiki)',
   rag: 'RAG (Docs Locales)',
   fibras: 'Fibras (Conectividad)',
-  crm: 'CRM (Tickets)'
+  crm: 'CRM (Tickets)',
+  teki: 'Teki (Desvíos y Fibras)'
 }
 
 onMounted(async () => {

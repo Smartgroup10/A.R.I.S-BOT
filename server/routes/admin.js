@@ -26,9 +26,9 @@ router.get('/stats', (req, res) => {
   }
 });
 
-// GET /api/admin/users — list all users
+// GET /api/admin/users — list all users (filtered)
 router.get('/users', (req, res) => {
-  const users = db.getAllUsers();
+  const users = db.getAllUsers().map(({ password_hash, setup_token, setup_token_expires, ...safe }) => safe);
   res.json(users);
 });
 
@@ -82,10 +82,11 @@ router.post('/users', async (req, res) => {
   }
 });
 
-// GET /api/admin/users/:id — user detail
+// GET /api/admin/users/:id — user detail (filtered)
 router.get('/users/:id', (req, res) => {
-  const user = db.getUserById(parseInt(req.params.id));
-  if (!user) return res.status(404).json({ error: 'Usuario no encontrado' });
+  const raw = db.getUserById(parseInt(req.params.id));
+  if (!raw) return res.status(404).json({ error: 'Usuario no encontrado' });
+  const { password_hash, setup_token, setup_token_expires, ...user } = raw;
   const preferences = db.getUserPreferences(user.id);
   const sourceAccess = db.getEffectiveSourceAccess(user.id, user.role);
   const overrides = db.getUserSourceOverrides(user.id);

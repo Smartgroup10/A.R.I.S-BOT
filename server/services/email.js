@@ -91,4 +91,35 @@ async function sendWelcomeEmail({ to, name, setupUrl }) {
   }
 }
 
-module.exports = { isConfigured, sendWelcomeEmail };
+/**
+ * Send a generic email.
+ * @param {Object} opts
+ * @param {string} opts.to - Recipient email
+ * @param {string} opts.subject - Email subject
+ * @param {string} opts.text - Plain text body (optional if html provided)
+ * @param {string} opts.html - HTML body (optional if text provided)
+ * @returns {Promise<boolean>}
+ */
+async function sendEmail({ to, subject, text, html }) {
+  if (!isConfigured()) {
+    console.error('Email: SMTP not configured');
+    return false;
+  }
+
+  try {
+    const info = await getTransporter().sendMail({
+      from: process.env.SMTP_FROM || process.env.SMTP_USER,
+      to,
+      subject,
+      ...(text && { text }),
+      ...(html && { html })
+    });
+    console.log(`Email sent to ${to} (messageId: ${info.messageId})`);
+    return true;
+  } catch (err) {
+    console.error(`Failed to send email to ${to}:`, err.message);
+    return false;
+  }
+}
+
+module.exports = { isConfigured, sendWelcomeEmail, sendEmail };

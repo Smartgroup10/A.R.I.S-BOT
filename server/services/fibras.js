@@ -317,10 +317,40 @@ async function getRelevantContext(message) {
   }
 }
 
+/**
+ * Get lines for a specific client by matching the cliente field.
+ * Uses substring match on the cliente field only (not full-text).
+ */
+async function getLineasByCliente(clientName) {
+  if (!clientName || clientName.length < 3) return [];
+  const lineas = await getLineas();
+  const needle = clientName.toLowerCase().trim();
+
+  // Try exact match first (case-insensitive)
+  let matches = lineas.filter(l =>
+    l.cliente && l.cliente.toLowerCase().trim() === needle
+  );
+
+  // If no exact match, try substring matching with safeguards
+  if (matches.length === 0) {
+    matches = lineas.filter(l => {
+      if (!l.cliente) return false;
+      const c = l.cliente.toLowerCase().trim();
+      // Skip trivial/placeholder client names
+      if (c.length < 4 || c === '-' || c === 'sin cliente') return false;
+      // Fibras name is inside CRM name, or CRM name is inside Fibras name
+      return c.includes(needle) || needle.includes(c);
+    });
+  }
+
+  return matches;
+}
+
 module.exports = {
   isConfigured,
   searchLineas,
   getLineaByNumero,
+  getLineasByCliente,
   getStats,
   getLineas,
   mightBeAboutFibras,

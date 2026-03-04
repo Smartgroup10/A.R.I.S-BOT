@@ -11,8 +11,11 @@ const KNOWLEDGE_DIR = path.join(__dirname, '..', '..', 'knowledge');
 // Configure multer for file uploads
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    const subdir = req.body.folder || '';
-    const dest = path.join(KNOWLEDGE_DIR, subdir);
+    let subdir = (req.body.folder || '').replace(/\.\./g, '').replace(/\\/g, '/');
+    const dest = path.resolve(path.join(KNOWLEDGE_DIR, subdir));
+    if (!dest.startsWith(path.resolve(KNOWLEDGE_DIR))) {
+      return cb(new Error('Ruta de carpeta no válida'));
+    }
     fs.mkdirSync(dest, { recursive: true });
     cb(null, dest);
   },

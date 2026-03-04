@@ -1,6 +1,8 @@
 const path = require('path');
 require('dotenv').config({ path: path.join(__dirname, '..', '..', '.env') });
 
+const fibras = require('./fibras');
+
 const CRM_URL = process.env.CRM_URL || 'https://crm.go-red.es';
 const CRM_USER = process.env.CRM_USER;
 const CRM_PASS = process.env.CRM_PASS;
@@ -200,6 +202,82 @@ async function fetchTicketDetail(ticketId) {
   };
 }
 
+/**
+ * Update seguimiento interno (TKINTERNO) of a ticket.
+ * Appends text to existing seguimiento, preserving all other fields.
+ */
+async function updateSeguimiento(ticketId, text) {
+  const cookie = await login();
+
+  // First fetch current ticket data (need all required fields for TKT_SAVE)
+  const res1 = await fetch(`${CRM_URL}/aServerSide.jsp?FCT=TKT_FICHA`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'Cookie': cookie
+    },
+    body: new URLSearchParams({
+      crmEmpresa: CRM_EMPRESA,
+      TKID: ticketId,
+      CLID: '0',
+      MAID: '0'
+    }).toString()
+  });
+
+  if (!res1.ok) throw new Error(`CRM detail error: ${res1.status}`);
+  const data1 = await res1.json();
+  if (data1.respuesta && data1.respuesta.startsWith('-')) {
+    throw new Error(`Ticket ${ticketId} no encontrado`);
+  }
+
+  const f = data1.ficha || {};
+  const currentSeg = (f.TKINTERNO || '').trim();
+  const newSeg = currentSeg ? currentSeg + '\n' + text : text;
+
+  // Save with all required fields
+  const res2 = await fetch(`${CRM_URL}/aServerSide.jsp?FCT=TKT_SAVE`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'Cookie': cookie
+    },
+    body: new URLSearchParams({
+      crmEmpresa: CRM_EMPRESA,
+      CRMEMPRE: CRM_EMPRESA,
+      TKID: f.TKID.toString(),
+      TKIDCL: (f.TKIDCL || 0).toString(),
+      TKIDAR: (f.TKIDAR || '').toString(),
+      TKIDTM: (f.TKIDTM || '').toString(),
+      TMAREA: f.TMAREA || '',
+      TKIDUS: (f.TKIDUS || '').toString(),
+      TKESTADO: f.TKESTADO || '',
+      TKFECHA: f.TKFECHA || '',
+      TKHORA: f.TKHORA || '',
+      TKFECHALIM: f.TKFECHALIM || '',
+      TKPRIORIDAD: (f.TKPRIORIDAD || 0).toString(),
+      TKCONTACTO: f.TKCONTACTO || '',
+      TKTELEFONO: f.TKTELEFONO || '',
+      TKEMAIL: f.TKEMAIL || '',
+      TKDESCRIPCION: f.TKDESCRIPCION || '',
+      TKSOLUCION: f.TKSOLUCION || '',
+      TKINTERNO: newSeg,
+      TKORIGEN: f.TKORIGEN || '',
+      SCRH: '900',
+      SCRW: '1440'
+    }).toString()
+  });
+
+  if (!res2.ok) throw new Error(`CRM save error: ${res2.status}`);
+  const data2 = await res2.json();
+
+  if (data2.respuesta && data2.respuesta.startsWith('-')) {
+    throw new Error(`Error al guardar: ${data2.respuesta.substring(1)}`);
+  }
+
+  console.log(`CRM: seguimiento actualizado en ticket #${ticketId}`);
+  return { success: true, ticketId, rid: data2.rid };
+}
+
 // --- Client search via CLI_LISTA ---
 
 function parseClientId(idField) {
@@ -308,7 +386,7 @@ function extractClientQuery(message) {
 }
 
 /**
- * Get client context from CRM for AI.
+ * Get client context from CRM for AI, with automatic Fibras cross-reference.
  */
 async function getClientContext(message) {
   if (!isConfigured()) return null;
@@ -325,35 +403,139 @@ async function getClientContext(message) {
     let context = '\n---\n## Datos de Clientes - CRM ALPHA\n\n';
     context += `Búsqueda: **"${query}"** — ${clients.length} resultado(s):\n\n`;
 
+    // Cross-reference: search Fibras by each client name (top 5 clients max)
+    let fibrasResults = {};
+    if (fibras.isConfigured()) {
+      const clientNames = clients.slice(0, 5).map(c => c.nombre).filter(n => n && n.length >= 3);
+      const fibrasSearches = await Promise.all(
+        clientNames.map(name =>
+          fibras.getLineasByCliente(name).catch(() => [])
+        )
+      );
+      for (let i = 0; i < clientNames.length; i++) {
+        if (fibrasSearches[i].length > 0) {
+          fibrasResults[clientNames[i]] = fibrasSearches[i];
+        }
+      }
+    }
+
     for (const c of clients.slice(0, 10)) {
       context += `### Cliente #${c.id}: ${c.nombre}\n`;
       context += `| Campo | Valor |\n|---|---|\n`;
       if (c.cif) context += `| **CIF/NIF** | ${c.cif} |\n`;
       if (c.distribuidor) context += `| **Distribuidor** | ${c.distribuidor} |\n`;
-      context += `| **Nº Líneas** | ${c.lineas} |\n`;
+      context += `| **Nº Líneas (CRM)** | ${c.lineas} |\n`;
       context += `| **Estado** | ${c.estado} |\n`;
       if (c.fecha) context += `| **Fecha** | ${c.fecha} |\n`;
       if (c.contacto) context += `| **Contacto** | ${c.contacto} |\n`;
       if (c.ultima_interaccion_fecha) context += `| **Última interacción** | ${c.ultima_interaccion_fecha} |\n`;
       if (c.ultima_interaccion) context += `| **Detalle interacción** | ${c.ultima_interaccion.substring(0, 300)} |\n`;
       context += '\n';
+
+      // Append Fibras lines for this client
+      const lineas = fibrasResults[c.nombre];
+      if (lineas && lineas.length > 0) {
+        context += `#### Líneas de ${c.nombre} (Sistema de Fibras: ${lineas.length} encontradas)\n\n`;
+        context += `| Nº Línea | Proveedor | Sede | Tipo | Velocidad | IP | Dirección IP |\n`;
+        context += `|---|---|---|---|---|---|---|\n`;
+        for (const l of lineas.slice(0, 30)) {
+          context += `| ${l.numero_linea} | ${l.proveedor} | ${l.sede} | ${l.tipo_conectividad} | ${l.velocidad} | ${l.tipo_ip} | ${l.direccion_ip || '-'} |\n`;
+        }
+        if (lineas.length > 30) {
+          context += `\n_(Mostrando 30 de ${lineas.length} líneas)_\n`;
+        }
+        context += '\n';
+      } else if (parseInt(c.lineas) > 0) {
+        context += `_(No se encontraron líneas de este cliente en el Sistema de Fibras)_\n\n`;
+      }
     }
 
     if (clients.length > 10) {
       context += `_(Mostrando 10 de ${clients.length} resultados)_\n\n`;
     }
 
+    const totalFibras = Object.values(fibrasResults).reduce((sum, arr) => sum + arr.length, 0);
+
+    // --- Ticket history for top clients ---
+    for (const c of clients.slice(0, 3)) {
+      if (!c.nombre || c.nombre.length < 3) continue;
+      try {
+        const tickets = await fetchClientTickets(c.nombre);
+        if (tickets.length === 0) continue;
+
+        // Count by estado
+        const estadoCount = {};
+        for (const t of tickets) {
+          const est = t.estado || 'Desconocido';
+          estadoCount[est] = (estadoCount[est] || 0) + 1;
+        }
+
+        context += `### Historial de Tickets de ${c.nombre}\n\n`;
+        context += `**Total:** ${tickets.length} ticket(s)\n`;
+        context += `**Desglose por estado:** `;
+        context += Object.entries(estadoCount).map(([k, v]) => `${k}: ${v}`).join(' | ');
+        context += '\n\n';
+
+        // Last 10 tickets (sorted by date desc — already comes sorted from CRM)
+        const last10 = tickets.slice(0, 10);
+        context += `| # | Fecha | Perfil | Descripción | Estado |\n`;
+        context += `|---|---|---|---|---|\n`;
+        for (const t of last10) {
+          const desc = (t.descripcion || '').substring(0, 120).replace(/\n/g, ' ');
+          context += `| ${t.id} | ${t.fecha} | ${t.perfil} | ${desc} | ${t.estado} |\n`;
+        }
+        if (tickets.length > 10) {
+          context += `\n_(Mostrando 10 de ${tickets.length} tickets)_\n`;
+        }
+        context += '\n';
+
+        // Fetch detail for top 3 most recent tickets
+        const top3 = last10.slice(0, 3);
+        const details = await Promise.all(
+          top3.map(t => fetchTicketDetail(t.id).catch(() => null))
+        );
+        for (let i = 0; i < top3.length; i++) {
+          const detail = details[i];
+          if (!detail) continue;
+          context += `#### Detalle Ticket #${top3[i].id}\n`;
+          if (detail.descripcion) context += `- **Descripción:** ${detail.descripcion.substring(0, 500)}\n`;
+          if (detail.solucion) context += `- **Solución:** ${detail.solucion.substring(0, 500)}\n`;
+          if (detail.seguimiento) context += `- **Seguimiento:** ${detail.seguimiento.substring(0, 600)}\n`;
+          if (detail.notas) context += `- **Notas:** ${detail.notas.substring(0, 600)}\n`;
+          context += '\n';
+        }
+      } catch (e) {
+        console.error(`CRM: error fetching tickets for client ${c.nombre}:`, e.message);
+      }
+    }
+
     context += `## INSTRUCCIONES PARA DATOS DE CLIENTES (OBLIGATORIO):\n`;
     context += `1. SOLO usa los datos de clientes listados arriba. NUNCA inventes nombres, CIFs ni datos.\n`;
     context += `2. Si la búsqueda fue por teléfono, indica que ese número pertenece al cliente encontrado.\n`;
-    context += `3. Menciona la fuente: "Según el CRM..."\n`;
+    context += `3. Si se incluyen líneas del Sistema de Fibras, preséntalas junto con los datos del cliente.\n`;
+    context += `4. El "Nº Líneas (CRM)" es el total registrado en el CRM. Las líneas del Sistema de Fibras son las que tenemos detalladas (puede no ser el 100%).\n`;
+    context += `5. Menciona las fuentes: "Según el CRM..." para datos del cliente, "Según el Sistema de Fibras..." para las líneas.\n`;
+    context += `6. Si se incluye historial de tickets, cita SIEMPRE los números exactos. NUNCA inventes números de ticket.\n`;
+    context += `7. Para el historial de tickets, presenta el resumen (total, desglose por estado) y los tickets más relevantes.\n`;
     context += `---\n`;
+
+    if (totalFibras > 0) {
+      console.log(`CRM+Fibras: cross-referenced ${totalFibras} lines for ${Object.keys(fibrasResults).length} client(s)`);
+    }
 
     return context;
   } catch (e) {
     console.error('CRM client search error:', e.message);
     return null;
   }
+}
+
+/**
+ * Fetch all tickets (open + closed) for a specific client by name.
+ * Uses CndCLIENTE + CndCERRADO=0 which returns everything.
+ */
+async function fetchClientTickets(clientName) {
+  return fetchTickets({ cliente: clientName, cerrado: '0' });
 }
 
 // --- Cache layer ---
@@ -675,10 +857,21 @@ async function getRelevantContext(message) {
     const results = await searchTickets(message, 15);
     if (results.length === 0) return null;
 
+    // Fetch detail (seguimiento + notas) for top 5 tickets
+    const top5 = results.slice(0, 5);
+    const details = await Promise.all(
+      top5.map(t => fetchTicketDetail(t.id).catch(() => null))
+    );
+    const detailMap = {};
+    for (let i = 0; i < top5.length; i++) {
+      if (details[i]) detailMap[top5[i].id] = details[i];
+    }
+
     let context = '\n---\n## Datos del CRM - Tickets ALPHA\n\n';
     context += `Se encontraron **${results.length} ticket(s)** relevantes (de ${tickets.length} abiertos):\n\n`;
 
     for (const t of results.slice(0, 10)) {
+      const detail = detailMap[t.id];
       context += `### Ticket #${t.id}\n`;
       context += `| Campo | Valor |\n|---|---|\n`;
       context += `| Fecha | ${t.fecha} ${t.hora} |\n`;
@@ -687,8 +880,10 @@ async function getRelevantContext(message) {
       context += `| Estado | ${t.estado} |\n`;
       context += `| Área | ${t.area} |\n`;
       if (t.tema) context += `| Tema | ${t.tema} |\n`;
-      context += `| Descripción | ${t.descripcion.substring(0, 300)} |\n`;
-      if (t.solucion) context += `| Solución | ${t.solucion.substring(0, 300)} |\n`;
+      context += `| Descripción | ${(detail?.descripcion || t.descripcion).substring(0, 300)} |\n`;
+      if (t.solucion || detail?.solucion) context += `| Solución | ${(detail?.solucion || t.solucion).substring(0, 300)} |\n`;
+      if (detail?.seguimiento) context += `| **Seguimiento interno** | ${detail.seguimiento.substring(0, 500)} |\n`;
+      if (detail?.notas) context += `| Historial acciones | ${detail.notas.substring(0, 400)} |\n`;
       if (t.fecha_limite) context += `| Fecha límite | ${t.fecha_limite} |\n`;
       if (t.ultimo_usuario) context += `| Último usuario | ${t.ultimo_usuario} |\n`;
       if (t.usuario_creacion) context += `| Creado por | ${t.usuario_creacion} |\n`;
@@ -714,6 +909,118 @@ async function getRelevantContext(message) {
   }
 }
 
+// --- Ticket creation via TKT_SAVE ---
+
+// TKIDAR → TMAREA mapping (derived from CRM structure)
+const AREA_MAP = {
+  '10': 'INCIDENCIA',  // Soporte
+  '1': 'PETICIÓN',     // Instalaciones
+  '2': 'GESTIÓN',      // Comercial Voip
+  '3': 'GESTIÓN',      // Oficina técnica
+  '5': 'GESTIÓN',      // Atención móvil
+  '6': 'GESTIÓN',      // Facturación
+  '7': 'GESTIÓN',      // Atención cliente
+  '8': 'GESTIÓN',      // Comercial
+  '9': 'GESTIÓN',      // Oficina móvil
+};
+
+/**
+ * Create a new ticket in the CRM.
+ * IMPORTANT: clientId MUST be > 0 (valid CRM client). The server-side CLOB handler
+ * fails with "EOF" error when TKIDCL=0. Always look up the client first via fetchClients().
+ *
+ * @param {Object} params
+ * @param {number} params.temaId - Tema/type ID (required). 226=Centralita, 228=Conectividad, etc.
+ * @param {string} params.description - Problem description (required)
+ * @param {string} params.fechaLimite - Deadline DD-MM-YYYY (required)
+ * @param {number} params.clientId - Client ID from CLI_LISTA (REQUIRED, must be > 0)
+ * @param {number} [params.prioridad=0] - 0=Normal, 1=Urgente, 2=Muy urgente
+ * @param {string} [params.contacto] - Contact name
+ * @param {string} [params.email] - Contact email
+ * @param {string} [params.telefono] - Contact phone
+ * @returns {{ success: boolean, ticketId?: string, error?: string }}
+ */
+async function createTicket({ temaId, description, fechaLimite, clientId, prioridad, contacto, email, telefono }) {
+  if (!clientId || clientId <= 0) {
+    return { success: false, error: 'Se requiere un ID de cliente válido (clientId > 0). Busca el cliente primero con la función de búsqueda de clientes.' };
+  }
+
+  const cookie = await login();
+
+  const now = new Date();
+  const fecha = `${String(now.getDate()).padStart(2,'0')}-${String(now.getMonth()+1).padStart(2,'0')}-${now.getFullYear()}`;
+  const hora = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}:${String(now.getSeconds()).padStart(2,'0')}`;
+
+  const params = new URLSearchParams({
+    crmEmpresa: CRM_EMPRESA,
+    TKID: '0',
+    TKIDAR: '10',                              // Soporte
+    TMAREA: AREA_MAP['10'] || 'INCIDENCIA',    // Area for Soporte
+    TKIDTM: String(temaId),
+    TKDESCRIPCION: description,
+    TKFECHALIM: fechaLimite,
+    TKIDCL: String(clientId),                  // Client ID (MUST be > 0)
+    TKPRIORIDAD: String(prioridad || 0),
+    TKCONTACTO: contacto || '',
+    TKEMAIL: email || '',
+    TKTELEFONO: telefono || '',
+    TKIDUS: '1048',                            // Creator user ID
+    TKFECHA: fecha,
+    TKHORA: hora,
+    TKESTADO: 'En espera cliente',
+    TKIDESTADO: '0',
+    TKUID: String(Date.now()),
+    USCREA: 'ARIA Bot',
+    USULTIMO: 'ARIA Bot',
+    TKULTFECHA: fecha,
+    TKBLOQUEO: '0',
+    TKIDUSULT: '0',
+    MATEXTO: '',
+    MATEXTOVF: '',
+    MAFICHEROS: '',
+    MAFICHEROSVF: '',
+    HAYMAILC: '0',
+    HAYMAILO: '0',
+    MAIDBU: '2',
+    MAIDBU2: '6',
+    OPERADORALPHA: '0',
+    SCRH: '900',
+    SCRW: '1440'
+  });
+
+  const res = await fetch(`${CRM_URL}/aServerSide.jsp?FCT=TKT_SAVE`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'Cookie': cookie
+    },
+    body: params.toString()
+  });
+
+  if (!res.ok) {
+    return { success: false, error: `HTTP ${res.status}` };
+  }
+
+  const data = await res.json();
+
+  if (data.respuesta && data.respuesta.startsWith('-')) {
+    return { success: false, error: data.respuesta.substring(1).trim() };
+  }
+
+  const ticketId = data.rid ? String(data.rid) : null;
+  console.log(`CRM: ticket created, rid=${data.rid}`);
+
+  // Invalidate ticket cache
+  cachedTickets = null;
+  cacheTime = 0;
+
+  return {
+    success: true,
+    ticketId: ticketId,
+    rid: data.rid
+  };
+}
+
 module.exports = {
   isConfigured,
   getTickets,
@@ -727,5 +1034,8 @@ module.exports = {
   getResolutionContext,
   getDirectTicketContext,
   getClientContext,
-  searchClosedSoporte
+  searchClosedSoporte,
+  createTicket,
+  updateSeguimiento,
+  fetchClientTickets
 };

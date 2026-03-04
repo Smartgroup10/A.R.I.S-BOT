@@ -70,6 +70,7 @@ export const useChatStore = defineStore('chat', () => {
   const feedbackMap = ref({})
   const historyUsed = ref(false)
   const followUpSuggestions = ref([])
+  const activeToolCall = ref(null) // { name, id } when a tool is executing
 
   let abortFn = null
 
@@ -215,7 +216,14 @@ export const useChatStore = defineStore('chat', () => {
         onHistoryUsed() {
           historyUsed.value = true
         },
+        onToolStart(data) {
+          activeToolCall.value = { name: data.name, id: data.id }
+        },
+        onToolResult(data) {
+          activeToolCall.value = null
+        },
         onDone() {
+          activeToolCall.value = null
           messages.value.push({ role: 'assistant', content: streamingContent.value })
           streamingContent.value = ''
           isStreaming.value = false
@@ -317,6 +325,7 @@ export const useChatStore = defineStore('chat', () => {
     messages,
     isStreaming,
     streamingContent,
+    activeToolCall,
     userContext,
     hasContext,
     feedbackMap,

@@ -79,7 +79,7 @@ export async function deleteConversation(conversationId) {
 
 // --- Chat API ---
 
-export function sendMessage({ conversationId, message, attachments }, { onDelta, onDone, onConversationId, onTitle, onHistoryUsed, onError }) {
+export function sendMessage({ conversationId, message, attachments }, { onDelta, onDone, onConversationId, onTitle, onHistoryUsed, onToolStart, onToolResult, onError }) {
   const controller = new AbortController();
 
   fetch(`${API_BASE}/chat`, {
@@ -132,6 +132,12 @@ export function sendMessage({ conversationId, message, attachments }, { onDelta,
                 break;
               case 'history_used':
                 onHistoryUsed?.();
+                break;
+              case 'tool_start':
+                onToolStart?.(data);
+                break;
+              case 'tool_result':
+                onToolResult?.(data);
                 break;
               case 'done':
                 onDone?.();

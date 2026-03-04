@@ -1,54 +1,244 @@
 const path = require('path');
 require('dotenv').config({ path: path.join(__dirname, '..', '..', '.env') });
+const { ImapFlow } = require('imapflow');
 
 const TEKI_URL = process.env.TEKI_URL || 'https://www.teki.es';
 const TEKI_USER = process.env.TEKI_USER;
 const TEKI_PASS = process.env.TEKI_PASS;
+const TEKI_IMAP_HOST = process.env.TEKI_IMAP_HOST || 'imap.serviciodecorreo.es';
+const TEKI_IMAP_PORT = parseInt(process.env.TEKI_IMAP_PORT || '993');
+const TEKI_IMAP_USER = process.env.TEKI_IMAP_USER;
+const TEKI_IMAP_PASS = process.env.TEKI_IMAP_PASS;
 
 let sessionCookies = null;
 let cookieExpiry = 0;
+let loginInProgress = null; // Prevent concurrent login attempts
 
 function isConfigured() {
-  return !!(TEKI_USER && TEKI_PASS);
+  // Disabled until Teki provides a proper API (scraping + 2FA too fragile)
+  return false;
 }
 
-// --- Authentication ---
+// --- Hidden field parsing ---
+
+const HIDDEN_FIELD_PATTERNS = [
+  /<input[^>]+type="hidden"[^>]+name="([^"]+)"[^>]+value="([^"]*)"/gi,
+  /<input[^>]+name="([^"]+)"[^>]+type="hidden"[^>]+value="([^"]*)"/gi,
+  /<input[^>]+name="([^"]+)"[^>]+value="([^"]*)"[^>]+type="hidden"/gi,
+];
+
+function parseHiddenFields(html) {
+  const fields = {};
+  for (const re of HIDDEN_FIELD_PATTERNS) {
+    re.lastIndex = 0;
+    let m;
+    while ((m = re.exec(html)) !== null) fields[m[1]] = m[2];
+  }
+  return fields;
+}
+
+function collectCookies(response, existing) {
+  const cookies = [...existing];
+  const raw = response.headers.getSetCookie ? response.headers.getSetCookie() : [];
+  for (const c of raw) {
+    const pair = c.split(';')[0].trim();
+    // Skip "deleted" cookies
+    if (!pair.includes('=deleted')) cookies.push(pair);
+  }
+  return cookies;
+}
+
+function buildCookieString(cookies) {
+  // Deduplicate by key (last value wins)
+  const map = {};
+  for (const c of cookies) {
+    const [key] = c.split('=', 1);
+    map[key] = c;
+  }
+  return Object.values(map).join('; ');
+}
+
+// --- IMAP 2FA code retrieval ---
+
+function createImapClient() {
+  const client = new ImapFlow({
+    host: TEKI_IMAP_HOST,
+    port: TEKI_IMAP_PORT,
+    secure: true,
+    auth: { user: TEKI_IMAP_USER, pass: TEKI_IMAP_PASS },
+    logger: false,
+    socketTimeout: 15000
+  });
+  // Prevent unhandled error crashes
+  client.on('error', (err) => {
+    console.error('Teki IMAP error:', err.message);
+  });
+  return client;
+}
+
+// Get the UID of the latest Teki email (to know which ones to skip)
+async function getLatestTekiUid() {
+  const client = createImapClient();
+
+  try {
+    await client.connect();
+    const lock = await client.getMailboxLock('INBOX');
+    try {
+      const tenMinAgo = new Date(Date.now() - 10 * 60 * 1000);
+      let maxUid = 0;
+      for await (const msg of client.fetch(
+        { since: tenMinAgo },
+        { envelope: true }
+      )) {
+        const subject = msg.envelope.subject || '';
+        if (subject.includes('TEKI') || subject.includes('teki')) {
+          if (msg.uid > maxUid) maxUid = msg.uid;
+        }
+      }
+      return maxUid;
+    } finally {
+      lock.release();
+    }
+  } finally {
+    await client.logout().catch(() => {});
+    client.close();
+  }
+}
+
+async function read2FACode(lastKnownUid, maxWaitMs = 45000) {
+  const startTime = Date.now();
+  const pollInterval = 3000;
+  // Wait at least 5s for email delivery before first check
+  await new Promise(r => setTimeout(r, 5000));
+
+  while (Date.now() - startTime < maxWaitMs) {
+    const client = createImapClient();
+
+    try {
+      await client.connect();
+      const lock = await client.getMailboxLock('INBOX');
+
+      try {
+        const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000);
+
+        for await (const msg of client.fetch(
+          { since: fiveMinAgo },
+          { envelope: true, bodyParts: ['1'] }
+        )) {
+          const subject = msg.envelope.subject || '';
+          if ((subject.includes('TEKI') || subject.includes('teki')) && msg.uid > lastKnownUid) {
+            const textBody = msg.bodyParts?.get('1')?.toString() || '';
+            const codeMatch = textBody.match(/\b(\d{8})\b/);
+            if (codeMatch) {
+              console.log('Teki: 2FA code extracted from email (uid:', msg.uid + ')');
+              return codeMatch[1];
+            }
+          }
+        }
+      } finally {
+        lock.release();
+      }
+    } finally {
+      await client.logout().catch(() => {});
+      client.close?.();
+    }
+
+    // Wait and retry with fresh connection
+    console.log('Teki: 2FA email not yet arrived, retrying...');
+    await new Promise(r => setTimeout(r, pollInterval));
+  }
+
+  console.error('Teki: Timed out waiting for 2FA email');
+  return null;
+}
+
+// --- Authentication (with 2FA) ---
 
 async function login() {
-  const res = await fetch(TEKI_URL + '/', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      usuario_mail: TEKI_USER,
-      password: TEKI_PASS
-    }),
-    redirect: 'manual'
-  });
+  // Prevent concurrent logins
+  if (loginInProgress) return loginInProgress;
 
-  // Collect cookies from Set-Cookie headers
-  const raw = res.headers.get('set-cookie') || '';
-  if (raw) {
-    sessionCookies = raw.split(/,(?=\s*\w+=)/).map(c => c.split(';')[0].trim()).join('; ');
-  }
+  loginInProgress = (async () => {
+    try {
+      console.log('Teki: Starting login...');
 
-  // Follow redirect to get more cookies if needed
-  const location = res.headers.get('location');
-  if (location) {
-    const followUrl = location.startsWith('http') ? location : TEKI_URL + location;
-    const res2 = await fetch(followUrl, {
-      headers: { Cookie: sessionCookies || '' },
-      redirect: 'manual'
-    });
-    const raw2 = res2.headers.get('set-cookie') || '';
-    if (raw2) {
-      const extra = raw2.split(/,(?=\s*\w+=)/).map(c => c.split(';')[0].trim()).join('; ');
-      sessionCookies = sessionCookies ? sessionCookies + '; ' + extra : extra;
+      // Step 0: Get latest known Teki email UID (to skip old codes)
+      const lastUid = await getLatestTekiUid();
+      console.log('Teki: Last known email UID:', lastUid);
+
+      // Step 1: GET login page for session cookie + hidden fields
+      const getRes = await fetch(TEKI_URL + '/');
+      const loginHtml = await getRes.text();
+      let cookies = collectCookies(getRes, []);
+      const hiddenFields = parseHiddenFields(loginHtml);
+
+      // Step 2: POST credentials (triggers 2FA email)
+      const formData = { ...hiddenFields, usuario_mail: TEKI_USER, password: TEKI_PASS };
+      const postRes = await fetch(TEKI_URL + '/', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          Cookie: buildCookieString(cookies)
+        },
+        body: new URLSearchParams(formData),
+        redirect: 'follow'
+      });
+
+      cookies = collectCookies(postRes, cookies);
+      const html2FA = await postRes.text();
+
+      // Verify we're on the 2FA page (not still on login = wrong credentials)
+      if (html2FA.includes('usuario_mail') && html2FA.includes('password') && !html2FA.includes('token_2fa')) {
+        throw new Error('Teki login failed: invalid credentials');
+      }
+
+      if (!html2FA.includes('token_2fa')) {
+        throw new Error('Teki login: unexpected page (no 2FA prompt)');
+      }
+
+      console.log('Teki: Credentials accepted, waiting for 2FA code...');
+
+      // Step 3: Read 2FA code from email via IMAP (only emails newer than lastUid)
+      const code = await read2FACode(lastUid, 45000);
+      if (!code) {
+        throw new Error('Teki: Could not retrieve 2FA code from email');
+      }
+
+      // Step 4: Submit 2FA code
+      const fields2FA = parseHiddenFields(html2FA);
+      const codeFormData = { ...fields2FA, token_2fa: code };
+      const codeRes = await fetch(TEKI_URL + '/', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          Cookie: buildCookieString(cookies)
+        },
+        body: new URLSearchParams(codeFormData),
+        redirect: 'manual'
+      });
+
+      cookies = collectCookies(codeRes, cookies);
+
+      // Follow redirects after 2FA
+      let nextLoc = codeRes.headers.get('location');
+      while (nextLoc) {
+        const url = nextLoc.startsWith('http') ? nextLoc : TEKI_URL + nextLoc;
+        const r = await fetch(url, { headers: { Cookie: buildCookieString(cookies) }, redirect: 'manual' });
+        cookies = collectCookies(r, cookies);
+        nextLoc = r.headers.get('location');
+      }
+
+      sessionCookies = buildCookieString(cookies);
+      cookieExpiry = Date.now() + 25 * 60 * 1000; // 25 min
+
+      console.log('Teki: Login + 2FA completed');
+      return sessionCookies;
+    } finally {
+      loginInProgress = null;
     }
-  }
+  })();
 
-  cookieExpiry = Date.now() + 25 * 60 * 1000; // 25 min
-  console.log('Teki: logged in successfully');
-  return sessionCookies;
+  return loginInProgress;
 }
 
 async function getSession() {
@@ -62,14 +252,21 @@ function isLoginPage(html) {
   return html.includes('usuario_mail') && html.includes('password') && html.includes('Acceder');
 }
 
+function isNotAuthorized(html) {
+  return html.includes('no autorizado');
+}
+
 async function fetchPage(url) {
   let session = await getSession();
   let res = await fetch(url, { headers: { Cookie: session }, redirect: 'follow' });
   let html = await res.text();
 
-  if (isLoginPage(html)) {
-    await login();
-    res = await fetch(url, { headers: { Cookie: sessionCookies }, redirect: 'follow' });
+  if (isLoginPage(html) || isNotAuthorized(html)) {
+    // Force re-login
+    sessionCookies = null;
+    cookieExpiry = 0;
+    session = await getSession();
+    res = await fetch(url, { headers: { Cookie: session }, redirect: 'follow' });
     html = await res.text();
   }
   return html;
@@ -85,11 +282,13 @@ async function postForm(url, formData) {
   });
   let html = await res.text();
 
-  if (isLoginPage(html)) {
-    await login();
+  if (isLoginPage(html) || isNotAuthorized(html)) {
+    sessionCookies = null;
+    cookieExpiry = 0;
+    session = await getSession();
     res = await fetch(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded', Cookie: sessionCookies },
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded', Cookie: session },
       body: new URLSearchParams(formData),
       redirect: 'follow'
     });
@@ -105,7 +304,6 @@ function parseFormFields(html) {
   const inputRegex = /<input[^>]+name="([^"]+)"[^>]*>/gi;
   let m;
   while ((m = inputRegex.exec(html)) !== null) {
-    // Get value if present
     const valMatch = m[0].match(/value="([^"]*)"/);
     fields[m[1]] = valMatch ? valMatch[1] : '';
   }
@@ -116,11 +314,8 @@ function parseFormFields(html) {
   return fields;
 }
 
-// Find field name near a label text
 function findFieldByLabel(html, labelText) {
-  // Look for: label containing text, then nearby input/select with name
   const escapedLabel = labelText.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  // Pattern 1: label text in a div/label before input
   const pattern = new RegExp(escapedLabel + '[\\s\\S]{0,500}?name="([^"]+)"', 'i');
   const m = pattern.exec(html);
   return m ? m[1] : null;
@@ -132,7 +327,6 @@ function parseTable(html) {
   const results = [];
   const columns = [];
 
-  // Extract thead columns
   const theadMatch = html.match(/<thead[^>]*>([\s\S]*?)<\/thead>/);
   if (theadMatch) {
     const thMatches = theadMatch[1].match(/<th[^>]*>([\s\S]*?)<\/th>/g) || [];
@@ -142,7 +336,6 @@ function parseTable(html) {
     }
   }
 
-  // Extract tbody rows
   const tbodyMatch = html.match(/<tbody[^>]*>([\s\S]*?)<\/tbody>/);
   if (!tbodyMatch) return { columns, rows: results };
 
@@ -153,7 +346,6 @@ function parseTable(html) {
 
     if (values.length > 0 && columns.length > 0) {
       const row = {};
-      // Skip first column if it's "Opciones" (action button)
       const offset = columns[0].toLowerCase().includes('opciones') ? 1 : 0;
       for (let i = offset; i < columns.length; i++) {
         row[columns[i]] = values[i] || '';
@@ -173,9 +365,14 @@ let desviosFormCache = null;
 async function getDesviosFormFields() {
   if (desviosFormCache) return desviosFormCache;
   const html = await fetchPage(DESVIOS_URL);
+
+  if (isNotAuthorized(html)) {
+    console.error('Teki: User not authorized for Desvíos module');
+    return null;
+  }
+
   desviosFormCache = parseFormFields(html);
 
-  // Try to identify the phone number field
   const phoneField = findFieldByLabel(html, 'Teléfono') ||
                      findFieldByLabel(html, 'telefono') ||
                      findFieldByLabel(html, 'Número');
@@ -186,15 +383,14 @@ async function getDesviosFormFields() {
 
 async function searchDesvios(telefono) {
   const fields = await getDesviosFormFields();
+  if (!fields) return { rows: [], total: 0 };
 
-  // Build form data with all empty fields + phone number
   const formData = {};
   for (const [k, v] of Object.entries(fields)) {
     if (k.startsWith('_')) continue;
     formData[k] = v;
   }
 
-  // Set phone field
   const phoneField = fields._phoneField || Object.keys(fields).find(k =>
     /telefono|phone|linea|numero/i.test(k)
   );
@@ -205,7 +401,6 @@ async function searchDesvios(telefono) {
   const html = await postForm(DESVIOS_URL, formData);
   const { rows } = parseTable(html);
 
-  // Also try to extract total from "Registros X a Y de Z"
   const totalMatch = html.match(/Registros?\s+\d+\s+a\s+\d+\s+de\s+(\d+)/i);
   const total = totalMatch ? parseInt(totalMatch[1]) : rows.length;
 
@@ -220,9 +415,14 @@ let fibrasFormCache = null;
 async function getFibrasFormFields() {
   if (fibrasFormCache) return fibrasFormCache;
   const html = await fetchPage(FIBRAS_TEKI_URL);
+
+  if (isNotAuthorized(html)) {
+    console.error('Teki: User not authorized for Fibras module');
+    return null;
+  }
+
   fibrasFormCache = parseFormFields(html);
 
-  // Identify key fields
   const codeField = findFieldByLabel(html, 'Solicitud') || findFieldByLabel(html, 'Código');
   if (codeField) fibrasFormCache._codeField = codeField;
 
@@ -237,6 +437,7 @@ async function getFibrasFormFields() {
 
 async function searchTekiFibras(query) {
   const fields = await getFibrasFormFields();
+  if (!fields) return { rows: [], total: 0 };
 
   const formData = {};
   for (const [k, v] of Object.entries(fields)) {
@@ -244,7 +445,6 @@ async function searchTekiFibras(query) {
     formData[k] = v;
   }
 
-  // Detect what the user is searching for
   const codeMatch = query.match(/\b(\d{4,6})\b/);
   const ipMatch = query.match(/\b(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\b/);
   const iuaMatch = query.match(/\b(\d{9,12})\b/);
@@ -304,7 +504,6 @@ function mightBeAboutTekiFibras(message) {
   return TEKI_FIBRAS_PATTERNS.some(p => p.test(message));
 }
 
-// Extract phone numbers from message (Spanish landlines: 9 digits starting with 8 or 9)
 function extractPhoneNumbers(message) {
   const matches = message.match(/\b[89]\d{8}\b/g) || [];
   return [...new Set(matches)];

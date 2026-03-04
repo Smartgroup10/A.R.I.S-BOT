@@ -3,12 +3,13 @@ const path = require('path');
 const fs = require('fs');
 const multer = require('multer');
 const { v4: uuidv4 } = require('uuid');
-const { streamChat, streamChatWithVision, generateTitle } = require('../services/ai');
+const { streamChat, streamChatWithVision, generateTitle, getToolDefinitions } = require('../services/ai');
 const { getSystemPrompt } = require('../system-prompt');
 const rag = require('../services/rag');
 const bookstack = require('../services/bookstack');
 const fibras = require('../services/fibras');
 const crm = require('../services/crm');
+const email = require('../services/email');
 const teki = require('../services/teki');
 const db = require('../db');
 
@@ -107,6 +108,15 @@ router.post('/', async (req, res) => {
 
   if (!message || !message.trim()) {
     return res.status(400).json({ error: 'Message is required' });
+  }
+  if (message.length > 10000) {
+    return res.status(400).json({ error: 'Mensaje demasiado largo (máx 10.000 caracteres)' });
+  }
+  if (conversationId && !/^[a-f0-9-]{36}$/.test(conversationId)) {
+    return res.status(400).json({ error: 'ID de conversación no válido' });
+  }
+  if (attachments && attachments.length > 10) {
+    return res.status(400).json({ error: 'Máximo 10 archivos adjuntos' });
   }
 
   let ended = false;
@@ -308,28 +318,118 @@ router.post('/', async (req, res) => {
       safeWrite(`data: ${JSON.stringify({ type: 'history_used' })}\n\n`);
     }
 
-    // Stream response — if images are attached, use vision (force Claude)
-    let stream;
-    if (hasImageAttachments) {
-      // Replace the last user message content with multimodal content for Claude vision
-      const lastMsg = history[history.length - 1];
-      lastMsg.content = [
-        { type: 'text', text: lastMsg.content },
-        ...imageAttachments
-      ];
-      stream = await streamChatWithVision(history, systemPrompt);
-    } else {
-      stream = await streamChat(history, systemPrompt);
-    }
-    let fullResponse = '';
+    // Get tool definitions based on user's source access
+    const tools = getToolDefinitions(sourceAccess);
 
-    stream.on('text', (text) => {
-      fullResponse += text;
-      safeWrite(`data: ${JSON.stringify({ type: 'delta', text })}\n\n`);
+    // Tool executor: maps tool names to actual functions
+    async function executeTool(name, input) {
+      if (name === 'add_seguimiento_crm') {
+        return crm.updateSeguimiento(input.ticket_id, input.text);
+      }
+      if (name === 'create_crm_ticket') {
+        return crm.createTicket({
+          temaId: input.tema_id,
+          description: input.description,
+          fechaLimite: input.fecha_limite,
+          clientId: input.client_id || 0,
+          prioridad: input.prioridad || 0,
+          contacto: input.contacto || '',
+          email: input.email || '',
+          telefono: input.telefono || ''
+        });
+      }
+      if (name === 'send_email_client') {
+        const ok = await email.sendEmail({ to: input.to_email, subject: input.subject, text: input.body });
+        if (ok) return { success: true, message: `Email enviado a ${input.to_email}` };
+        return { error: 'No se pudo enviar el email. Verifica la configuración SMTP.' };
+      }
+      return { error: `Unknown tool: ${name}` };
+    }
+
+    // Stream with tool use loop
+    let fullResponse = '';
+    let streamMessages = [...history];
+    let currentStream = null;
+    const MAX_TOOL_ROUNDS = 3;
+
+    // Handle client disconnect
+    req.on('close', () => {
+      ended = true;
+      if (currentStream && currentStream.abort) currentStream.abort();
     });
 
-    stream.on('end', async () => {
-      // Save assistant response
+    try {
+      for (let round = 0; round <= MAX_TOOL_ROUNDS; round++) {
+        if (ended) break;
+        console.log(`Stream round ${round}, messages: ${streamMessages.length}`);
+
+        // Start stream
+        if (hasImageAttachments && round === 0) {
+          const lastMsg = streamMessages[streamMessages.length - 1];
+          lastMsg.content = [
+            { type: 'text', text: lastMsg.content },
+            ...imageAttachments
+          ];
+          currentStream = await streamChatWithVision(streamMessages, systemPrompt);
+        } else {
+          currentStream = await streamChat(streamMessages, systemPrompt, tools.length > 0 ? tools : undefined);
+        }
+
+        // Collect text deltas
+        let roundText = '';
+        currentStream.on('text', (text) => {
+          roundText += text;
+          fullResponse += text;
+          safeWrite(`data: ${JSON.stringify({ type: 'delta', text })}\n\n`);
+        });
+
+        // Wait for stream to finish and get final message
+        console.log(`Round ${round}: waiting for finalMessage...`);
+        const finalMessage = await currentStream.finalMessage();
+        console.log(`Round ${round}: stop_reason=${finalMessage.stop_reason}, content blocks=${finalMessage.content.length}`);
+
+        if (ended) break;
+
+        // Check if AI wants to use tools
+        const toolUseBlocks = finalMessage.content.filter(b => b.type === 'tool_use');
+
+        if (toolUseBlocks.length === 0 || finalMessage.stop_reason !== 'tool_use') {
+          // No tool calls — we're done
+          break;
+        }
+
+        // Execute each tool call
+        const toolResults = [];
+        for (const toolBlock of toolUseBlocks) {
+          safeWrite(`data: ${JSON.stringify({ type: 'tool_start', name: toolBlock.name, id: toolBlock.id })}\n\n`);
+          console.log(`Tool call: ${toolBlock.name}(${JSON.stringify(toolBlock.input)})`);
+
+          try {
+            const result = await executeTool(toolBlock.name, toolBlock.input);
+            safeWrite(`data: ${JSON.stringify({ type: 'tool_result', name: toolBlock.name, id: toolBlock.id, result })}\n\n`);
+            toolResults.push({
+              type: 'tool_result',
+              tool_use_id: toolBlock.id,
+              content: JSON.stringify(result)
+            });
+          } catch (e) {
+            console.error(`Tool error (${toolBlock.name}):`, e.message);
+            safeWrite(`data: ${JSON.stringify({ type: 'tool_result', name: toolBlock.name, id: toolBlock.id, result: { error: e.message } })}\n\n`);
+            toolResults.push({
+              type: 'tool_result',
+              tool_use_id: toolBlock.id,
+              content: JSON.stringify({ error: e.message }),
+              is_error: true
+            });
+          }
+        }
+
+        // Append assistant message (with tool_use blocks) + tool results for next round
+        streamMessages.push({ role: 'assistant', content: finalMessage.content });
+        streamMessages.push({ role: 'user', content: toolResults });
+      }
+
+      // Save assistant response (text portions only)
       if (fullResponse) {
         db.addMessage(convId, 'assistant', fullResponse);
       }
@@ -347,19 +447,11 @@ router.post('/', async (req, res) => {
 
       safeWrite(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
       safeEnd();
-    });
-
-    stream.on('error', (error) => {
-      console.error('Stream error:', error.message);
+    } catch (error) {
+      console.error('Stream error:', error.message, error.stack);
       safeWrite(`data: ${JSON.stringify({ type: 'error', message: error.message })}\n\n`);
       safeEnd();
-    });
-
-    // Handle client disconnect
-    req.on('close', () => {
-      ended = true;
-      stream.abort();
-    });
+    }
   } catch (error) {
     console.error('Chat error:', error.message);
     if (!res.headersSent) {

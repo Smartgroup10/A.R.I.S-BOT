@@ -79,12 +79,22 @@ function sendSuggestion(text) {
             @feedback="handleFeedback"
           />
 
+          <!-- Tool execution indicator -->
+          <div v-if="store.activeToolCall" class="flex gap-3 py-2 ml-11">
+            <div class="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-cyan-50 dark:bg-cyan-900/30 border border-cyan-200 dark:border-cyan-800 text-cyan-700 dark:text-cyan-300 text-xs">
+              <svg class="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg>
+              <span v-if="store.activeToolCall.name === 'create_crm_ticket'">Creando ticket en CRM...</span>
+              <span v-else-if="store.activeToolCall.name === 'send_email_client'">Enviando email al cliente...</span>
+              <span v-else>Ejecutando accion...</span>
+            </div>
+          </div>
+
           <!-- Streaming message -->
           <div v-if="store.isStreaming" class="flex gap-3 py-3">
             <img src="/aria-logo.png" alt="A.R.I.S." class="w-8 h-8 rounded-full object-cover flex-shrink-0" />
             <div class="max-w-[75%] rounded-2xl rounded-bl-md px-4 py-2.5 text-sm leading-relaxed bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700">
               <div v-if="store.streamingContent" class="markdown-content" v-html="streamingHtml"></div>
-              <div v-else class="flex gap-1 py-1">
+              <div v-else-if="!store.activeToolCall" class="flex gap-1 py-1">
                 <span class="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style="animation-delay: 0ms"></span>
                 <span class="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style="animation-delay: 150ms"></span>
                 <span class="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style="animation-delay: 300ms"></span>

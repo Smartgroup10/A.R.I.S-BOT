@@ -3,6 +3,8 @@ require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 
 const express = require('express');
 const cors = require('cors');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
 const { initDb } = require('./db');
 const { loadSystemPrompt } = require('./system-prompt');
 const rag = require('./services/rag');
@@ -21,18 +23,58 @@ const { getProvider } = require('./services/ai');
 const app = express();
 const PORT = process.env.PORT || 3080;
 
-// Middleware
-app.use(cors());
-app.use(express.json());
+// Security headers
+app.use(helmet({
+  contentSecurityPolicy: false, // Vue SPA needs inline scripts
+  crossOriginEmbedderPolicy: false
+}));
 
-// Public auth routes
+// CORS — restrict to known origins
+const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || '').split(',').filter(Boolean);
+if (ALLOWED_ORIGINS.length === 0) {
+  ALLOWED_ORIGINS.push(`http://localhost:${PORT}`, 'http://localhost:3080', 'http://localhost:5173');
+}
+app.use(cors({
+  origin: (origin, cb) => {
+    if (!origin || ALLOWED_ORIGINS.includes(origin)) return cb(null, true);
+    cb(null, false);
+  },
+  credentials: true
+}));
+
+// Body parser with size limit
+app.use(express.json({ limit: '2mb' }));
+
+// Rate limiting — login: 10 attempts per 15min
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  message: { error: 'Demasiados intentos. Espera 15 minutos.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => req.ip
+});
+
+// Rate limiting — chat: 40 requests per minute per user
+const chatLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 40,
+  message: { error: 'Demasiadas solicitudes. Espera un momento.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => req.user?.id || req.ip
+});
+
+// Public auth routes (with login rate limiting)
+app.use('/api/auth/login', loginLimiter);
+app.use('/api/auth/setup-password', loginLimiter);
 app.use('/api/auth', authRoutes);
 
 // Admin API Routes
 app.use('/api/admin', authenticate, requireAdmin, adminRoutes);
 
 // Protected API Routes
-app.use('/api/chat', authenticate, chatRoutes);
+app.use('/api/chat', authenticate, chatLimiter, chatRoutes);
 app.use('/api/conversations', authenticate, conversationRoutes);
 app.use('/api/knowledge', authenticate, knowledgeRoutes);
 app.use('/api/fibras', authenticate, fibrasRoutes);
