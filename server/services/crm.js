@@ -458,11 +458,11 @@ async function getClientContext(message) {
 
     const totalFibras = Object.values(fibrasResults).reduce((sum, arr) => sum + arr.length, 0);
 
-    // --- Ticket history for top clients ---
+    // --- Ticket history for top clients (use ID-based lookup when available) ---
     for (const c of clients.slice(0, 3)) {
       if (!c.nombre || c.nombre.length < 3) continue;
       try {
-        const tickets = await fetchClientTickets(c.nombre);
+        const tickets = c.id ? await fetchClientTicketsById(c.id) : await fetchClientTickets(c.nombre);
         if (tickets.length === 0) continue;
 
         // Count by estado
@@ -480,11 +480,11 @@ async function getClientContext(message) {
 
         // Last 10 tickets (sorted by date desc — already comes sorted from CRM)
         const last10 = tickets.slice(0, 10);
-        context += `| # | Fecha | Perfil | Descripción | Estado |\n`;
+        context += `| # | Fecha | Área | Descripción | Estado |\n`;
         context += `|---|---|---|---|---|\n`;
         for (const t of last10) {
           const desc = (t.descripcion || '').substring(0, 120).replace(/\n/g, ' ');
-          context += `| ${t.id} | ${t.fecha} | ${t.perfil} | ${desc} | ${t.estado} |\n`;
+          context += `| ${t.id} | ${t.fecha} | ${t.area || t.perfil || ''} | ${desc} | ${t.estado} |\n`;
         }
         if (tickets.length > 10) {
           context += `\n_(Mostrando 10 de ${tickets.length} tickets)_\n`;
@@ -538,6 +538,50 @@ async function getClientContext(message) {
  */
 async function fetchClientTickets(clientName) {
   return fetchTickets({ cliente: clientName, cerrado: '0' });
+}
+
+/**
+ * Fetch all tickets for a client by their numeric ID (more precise than by name).
+ * Uses CLI_REFRESH_TKT endpoint with CLID parameter.
+ */
+async function fetchClientTicketsById(clientId) {
+  const cookie = await login();
+
+  const res = await fetch(`${CRM_URL}/aServerSide.jsp`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'Cookie': cookie
+    },
+    body: new URLSearchParams({
+      FCT: 'CLI_REFRESH_TKT',
+      crmEmpresa: CRM_EMPRESA,
+      CLID: String(clientId)
+    }).toString()
+  });
+
+  if (!res.ok) throw new Error(`CRM CLI_REFRESH_TKT error: ${res.status}`);
+  const data = await res.json();
+  if (data.respuesta && data.respuesta.startsWith('-')) {
+    throw new Error(`CRM error: ${data.respuesta.substring(1)}`);
+  }
+
+  const rows = data.lista?.rows || [];
+  return rows.map(row => {
+    const d = row.data || [];
+    return {
+      id: parseTicketId(d[0]),
+      fecha_limite: d[2] || '',
+      fecha: d[3] ? d[3].split(' ')[0] : '',
+      hora: d[3] ? d[3].split(' ')[1] || '' : '',
+      telefono: d[4] || '',
+      area: d[5] || '',
+      tema: d[6] || '',
+      descripcion: d[7] || '',
+      estado: d[8] || '',
+      ultimo_usuario: d[9] || ''
+    };
+  });
 }
 
 // --- Cache layer ---
@@ -1303,5 +1347,6 @@ module.exports = {
   fetchTicketEmails,
   fetchEmailDetail,
   fetchTicketDetail,
-  sendTicketEmail
+  sendTicketEmail,
+  fetchClientTicketsById
 };
