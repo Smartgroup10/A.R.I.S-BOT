@@ -476,6 +476,28 @@ const CRM_TOOLS = [
       },
       required: ['to_email', 'subject', 'body']
     }
+  },
+  {
+    name: 'reply_ticket_email',
+    description: 'Responde al hilo de correo de un cliente en un ticket del CRM. Lee el hilo de emails del ticket, envía la respuesta por email al cliente y registra la acción en el seguimiento del ticket. SOLO usar cuando el usuario haya confirmado EXPLÍCITAMENTE que quiere enviar la respuesta.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        ticket_id: {
+          type: 'string',
+          description: 'ID numérico del ticket al que se responde (ej: "16648")'
+        },
+        to_email: {
+          type: 'string',
+          description: 'Dirección email del destinatario (cliente). Si no se conoce, obtenerla del hilo de emails del ticket o del detalle del ticket.'
+        },
+        reply_text: {
+          type: 'string',
+          description: 'Texto de la respuesta al cliente. Debe ser profesional y conciso. NO incluir asunto ni firma, solo el cuerpo del mensaje.'
+        }
+      },
+      required: ['ticket_id', 'to_email', 'reply_text']
+    }
   }
 ];
 

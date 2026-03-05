@@ -372,6 +372,62 @@ router.post('/', async (req, res) => {
         if (ok) return { success: true, message: `Email enviado a ${input.to_email}` };
         return { error: 'No se pudo enviar el email. Verifica la configuración SMTP.' };
       }
+      if (name === 'reply_ticket_email') {
+        // 1. Fetch email thread for context
+        const emails = await crm.fetchTicketEmails(input.ticket_id);
+
+        // 2. Get ticket detail for client name and subject context
+        const ticketDetail = await crm.fetchTicketDetail(input.ticket_id);
+        const clientName = ticketDetail?.cliente || 'Cliente';
+
+        // 3. Determine subject line
+        let subject = `RE: Ticket #${input.ticket_id}`;
+        if (emails.length > 0) {
+          const lastSubject = emails[0].asunto || '';
+          if (lastSubject && !lastSubject.startsWith('RE:')) {
+            subject = `RE: ${lastSubject}`;
+          } else if (lastSubject) {
+            subject = lastSubject;
+          }
+        }
+        if (!subject.includes(`#${input.ticket_id}`)) {
+          subject += ` #${input.ticket_id}`;
+        }
+
+        // 4. Build HTML email body
+        const htmlBody = `<p>Estimado/a ${clientName},</p>` +
+          input.reply_text.split('\n').map(line => `<p>${line}</p>`).join('') +
+          `<br><p>Atentamente,</p><p><strong>Equipo de Soporte — SmartGroup / ALPHA</strong></p>`;
+
+        // 5. Send via SMTP
+        const ok = await email.sendEmail({
+          to: input.to_email,
+          subject,
+          html: htmlBody,
+          text: input.reply_text
+        });
+
+        if (!ok) {
+          return { error: 'No se pudo enviar el email. Verifica la configuración SMTP.' };
+        }
+
+        // 6. Log in ticket seguimiento
+        const now = new Date();
+        const dateStr = `${String(now.getDate()).padStart(2, '0')}/${String(now.getMonth() + 1).padStart(2, '0')}`;
+        const segText = `${dateStr} - Email enviado a ${input.to_email}: "${subject}" (via ARIS)`;
+        try {
+          await crm.updateSeguimiento(input.ticket_id, segText);
+        } catch (e) {
+          console.error('Failed to update seguimiento after email:', e.message);
+        }
+
+        return {
+          success: true,
+          message: `Email enviado a ${input.to_email} y registrado en seguimiento del ticket #${input.ticket_id}`,
+          subject,
+          emailThread: emails.length
+        };
+      }
       return { error: `Unknown tool: ${name}` };
     }
 

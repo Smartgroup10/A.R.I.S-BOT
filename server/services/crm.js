@@ -805,10 +805,46 @@ async function getDirectTicketContext(ticketId) {
       context += `### Historial de acciones\n${detail.notas}\n\n`;
     }
 
+    // Fetch email thread for this ticket
+    try {
+      const emails = await fetchTicketEmails(ticketId);
+      if (emails.length > 0) {
+        context += `### Hilo de Emails (${emails.length} correo(s))\n\n`;
+        context += `| # | Fecha | Hora | Tipo | Asunto |\n|---|---|---|---|---|\n`;
+        for (const e of emails) {
+          const tipo = e.tipo === 0 ? 'Entrada' : 'Salida';
+          context += `| ${e.id} | ${e.fecha} | ${e.hora} | ${tipo} | ${e.asunto} |\n`;
+        }
+        context += '\n';
+
+        // Fetch detail of last 3 emails for full body
+        const top3 = emails.slice(0, 3);
+        const details = await Promise.all(
+          top3.map(e => fetchEmailDetail(e.id).catch(() => null))
+        );
+        for (const ed of details) {
+          if (!ed) continue;
+          const dir = ed.carpeta === 'Salida' ? 'Enviado' : 'Recibido';
+          context += `#### Email #${ed.id} (${dir} — ${ed.fecha} ${ed.hora})\n`;
+          context += `- **De:** ${ed.from}\n`;
+          context += `- **Para:** ${ed.to}\n`;
+          if (ed.asunto) context += `- **Asunto:** ${ed.asunto}\n`;
+          if (ed.body) {
+            const plainBody = ed.body.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+            context += `- **Contenido:** ${plainBody.substring(0, 800)}\n`;
+          }
+          context += '\n';
+        }
+      }
+    } catch (e) {
+      console.error('Error fetching ticket emails:', e.message);
+    }
+
     context += `## INSTRUCCIONES (OBLIGATORIO):\n`;
     context += `1. Presenta TODA la información del ticket #${ticketId} de forma clara y organizada.\n`;
     context += `2. Si el usuario pregunta algo específico del ticket, responde basándote SOLO en los datos reales proporcionados.\n`;
     context += `3. NUNCA inventes datos que no estén aquí.\n`;
+    context += `4. Si hay hilo de emails, puedes usar \`reply_ticket_email\` para responder al cliente si el usuario lo solicita.\n`;
     context += `---\n`;
 
     return context;
@@ -1023,6 +1059,85 @@ async function createTicket({ temaId, description, fechaLimite, clientId, priori
   };
 }
 
+/**
+ * Fetch the email thread (listaMails) for a specific ticket.
+ * Returns array of { id, tipo, fecha, hora, asunto }
+ */
+async function fetchTicketEmails(ticketId) {
+  const cookie = await login();
+
+  const res = await fetch(`${CRM_URL}/aServerSide.jsp?FCT=TKT_FICHA`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'Cookie': cookie
+    },
+    body: new URLSearchParams({
+      crmEmpresa: CRM_EMPRESA,
+      TKID: String(ticketId),
+      CLID: '0',
+      MAID: '0'
+    }).toString()
+  });
+
+  if (!res.ok) throw new Error(`CRM TKT_FICHA error: ${res.status}`);
+  const data = await res.json();
+
+  const rows = data.listaMails?.rows || [];
+  return rows.map(row => {
+    const d = row.data || [];
+    return {
+      id: row.id,
+      tipo: row.tipo,  // 0=entrada, 1=salida
+      fecha: d[1] || '',
+      hora: d[2] || '',
+      asunto: d[3] || ''
+    };
+  });
+}
+
+/**
+ * Fetch full detail of a specific email by ID.
+ * Uses RID parameter (not MAID).
+ */
+async function fetchEmailDetail(emailId) {
+  const cookie = await login();
+
+  const res = await fetch(`${CRM_URL}/aServerSide.jsp?FCT=MAIL_FICHA`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'Cookie': cookie
+    },
+    body: new URLSearchParams({
+      crmEmpresa: CRM_EMPRESA,
+      RID: String(emailId)
+    }).toString()
+  });
+
+  if (!res.ok) throw new Error(`CRM MAIL_FICHA error: ${res.status}`);
+  const data = await res.json();
+  if (data.respuesta && data.respuesta.startsWith('-')) return null;
+
+  const f = data.ficha || {};
+  return {
+    id: f.MAID,
+    ticketId: f.MAIDTK,
+    clientId: f.MAIDCL,
+    asunto: f.MAASUNTO || '',
+    from: f.MAFROM || '',
+    to: f.MADESTS || '',
+    cc: f.MACC || '',
+    body: f.MATEXTO || '',
+    fecha: f.MAFECHA || '',
+    hora: f.MAHORA || '',
+    carpeta: f.MACARPETA || '',
+    estado: f.MAESTADOLBL || '',
+    cliente: f.CLNOMBRE || '',
+    buzon: f.BUUSR || ''
+  };
+}
+
 module.exports = {
   isConfigured,
   getTickets,
@@ -1040,5 +1155,8 @@ module.exports = {
   createTicket,
   updateSeguimiento,
   fetchClientTickets,
-  fetchClients
+  fetchClients,
+  fetchTicketEmails,
+  fetchEmailDetail,
+  fetchTicketDetail
 };
