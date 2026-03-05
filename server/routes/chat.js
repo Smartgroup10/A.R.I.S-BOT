@@ -341,6 +341,17 @@ router.post('/', async (req, res) => {
 
     // Tool executor: maps tool names to actual functions
     async function executeTool(name, input) {
+      if (name === 'search_crm_clients') {
+        const results = await crm.fetchClients(input.query);
+        const clients = results.slice(0, 10).map(c => ({
+          id: c.id,
+          nombre: c.nombre,
+          cif: c.cif,
+          estado: c.estado,
+          contacto: c.contacto
+        }));
+        return { total: results.length, clients };
+      }
       if (name === 'add_seguimiento_crm') {
         return crm.updateSeguimiento(input.ticket_id, input.text);
       }

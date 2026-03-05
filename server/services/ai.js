@@ -382,6 +382,20 @@ function streamChatWithVision(messages, systemPrompt) {
 
 const CRM_TOOLS = [
   {
+    name: 'search_crm_clients',
+    description: 'Busca clientes en el CRM por nombre, teléfono o CIF. Usa esta herramienta SIEMPRE que necesites obtener el ID de un cliente para crear un ticket, o cuando el usuario pida buscar un cliente.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        query: {
+          type: 'string',
+          description: 'Texto de búsqueda: nombre del cliente, número de teléfono o CIF/NIF (ej: "Movistar", "912345678", "B12345678")'
+        }
+      },
+      required: ['query']
+    }
+  },
+  {
     name: 'add_seguimiento_crm',
     description: 'Añade una nota al seguimiento interno de un ticket del CRM. Usa esta herramienta cuando el usuario pida agregar, apuntar o anotar algo en el seguimiento de un ticket.',
     input_schema: {

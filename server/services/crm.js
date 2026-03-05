@@ -344,6 +344,8 @@ const CLIENT_PATTERNS = [
   /\b[BbAa]\d{7,8}\b/,         // CIF pattern
   /numeraci[oó]n/i,
   /titularidad/i,
+  /(?:crea|crear|abrir|abre|nuevo)\s+(?:un\s+)?(?:ticket|incidencia)\s+(?:para|de|del?|al?\s+cliente)\s+/i,
+  /ticket\s+(?:para|de)\s+/i,
 ];
 
 function mightBeAboutClient(message) {
@@ -1037,5 +1039,6 @@ module.exports = {
   searchClosedSoporte,
   createTicket,
   updateSeguimiento,
-  fetchClientTickets
+  fetchClientTickets,
+  fetchClients
 };
