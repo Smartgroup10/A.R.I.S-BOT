@@ -1138,6 +1138,150 @@ async function fetchEmailDetail(emailId) {
   };
 }
 
+/**
+ * Send an email to a client through JDS's native email system (TKT_SAVE with HAYMAILC=1).
+ * This sends the email from the soporte@ mailbox and records it in the ticket's email thread.
+ *
+ * @param {string} ticketId - Ticket ID
+ * @param {string} toEmail - Recipient email address
+ * @param {string} subject - Email subject
+ * @param {string} htmlBody - HTML body of the email
+ * @returns {{ success: boolean, rid?: number, error?: string }}
+ */
+async function sendTicketEmail(ticketId, toEmail, subject, htmlBody) {
+  const cookie = await login();
+
+  // Fetch current ticket data (need all fields for TKT_SAVE)
+  const res1 = await fetch(`${CRM_URL}/aServerSide.jsp?FCT=TKT_FICHA`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'Cookie': cookie
+    },
+    body: new URLSearchParams({
+      crmEmpresa: CRM_EMPRESA,
+      TKID: ticketId,
+      CLID: '0',
+      MAID: '0'
+    }).toString()
+  });
+
+  if (!res1.ok) throw new Error(`CRM detail error: ${res1.status}`);
+  const data1 = await res1.json();
+  if (data1.respuesta && data1.respuesta.startsWith('-')) {
+    throw new Error(`Ticket ${ticketId} no encontrado`);
+  }
+
+  const f = data1.ficha || {};
+
+  const now = new Date();
+  const fecha = `${String(now.getDate()).padStart(2,'0')}-${String(now.getMonth()+1).padStart(2,'0')}-${now.getFullYear()}`;
+  const hora = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}:${String(now.getSeconds()).padStart(2,'0')}`;
+  const dateStr = `${String(now.getDate()).padStart(2,'0')}/${String(now.getMonth()+1).padStart(2,'0')}`;
+
+  // Append send note to seguimiento
+  const currentSeg = (f.TKINTERNO || '').trim();
+  const segNote = `${dateStr} - Email enviado a ${toEmail}: "${subject}" (via ARIS)`;
+  const newSeg = currentSeg ? currentSeg + '\n' + segNote : segNote;
+
+  const params = new URLSearchParams({
+    crmEmpresa: CRM_EMPRESA,
+    CRMEMPRE: CRM_EMPRESA,
+    // List filter fields (required by TKT_SAVE)
+    CndCLIENTE: '',
+    CndVEID: '0',
+    CndIDAR: '',
+    CndTMAREA: '',
+    CndESTADO: '',
+    CndBUS: '',
+    CndCERRADO: '2',
+    CndFECHA1: '',
+    CndFECHA2: '',
+    // Ticket fields
+    TKID: f.TKID.toString(),
+    TKIDAR: (f.TKIDAR || '10').toString(),
+    TKFECHA: f.TKFECHA || fecha,
+    TKHORA: f.TKHORA || hora,
+    USCREA: f.USCREA || 'ARIS Bot',
+    TKESTADO: f.TKESTADO || '',
+    TMAREA: f.TMAREA || '',
+    TKIDTM: (f.TKIDTM || '').toString(),
+    TMCOMPROMISO: f.TMCOMPROMISO || '',
+    TKFECHALIM: f.TKFECHALIM || '',
+    TKPRIORIDAD: (f.TKPRIORIDAD || 0).toString(),
+    VEID: (f.VEID || '0').toString(),
+    TKIDCL: (f.TKIDCL || 0).toString(),
+    TKIDCL_new_value: 'false',
+    TKTELEFONO: f.TKTELEFONO || '',
+    TKTELEFONO_new_value: 'false',
+    TKCONTACTO: f.TKCONTACTO || '',
+    CLCALLE: f.CLCALLE || '',
+    CLCODPOST: f.CLCODPOST || '',
+    TKDESCRIPCION: f.TKDESCRIPCION || '',
+    TKSOLUCION: f.TKSOLUCION || '',
+    TKINTERNO: newSeg,
+    // Email fields — this is the key part
+    MAIDBU: '2',                   // Buzón: soporte@smartgroup.es
+    TKDESTS: toEmail,              // Destinatario
+    TKDESTSBC: '',                 // BCC
+    MAASUNTO: subject,             // Asunto del email
+    CARTA_CK1: '',
+    OPERADORALPHA: '0',
+    MAIDBU2: '6',
+    TKDESTSVF: '',
+    TKDESTSVFBC: '',
+    MAASUNTOVF: '',
+    CARTA_CK2: '',
+    // Metadata
+    USBLOQUEO: '',
+    TKBLOQUEOFEC: '',
+    USULTIMO: 'ARIS Bot',
+    TKULTFECHA: fecha,
+    TKNOTAS: f.TKNOTAS || '',
+    MAFICHEROS: '',
+    MAFICHEROSVF: '',
+    MATEXTO: htmlBody,             // HTML body del email
+    MATEXTOVF: '',
+    TKNUEVOESTADO: '',
+    TKIDTE: '0',
+    TKIDESTADO: (f.TKIDESTADO || '0').toString(),
+    TKUID: String(Date.now()),
+    TECUENTAVF: '',
+    TKORIGEN: f.TKORIGEN || ' ',
+    TKEMAIL: toEmail,
+    TKNOMBRE: '',
+    TKBLOQUEO: '0',
+    TKIDUS: (f.TKIDUS || '1048').toString(),
+    TKIDUSULT: (f.TKIDUSULT || '1048').toString(),
+    PLID: '25:Respuesta Generica', // Plantilla
+    PLIDVF: '',
+    HAYMAILC: '1',                 // FLAG: enviar email al cliente
+    HAYMAILO: '0'
+  });
+
+  const res2 = await fetch(`${CRM_URL}/aServerSide.jsp?FCT=TKT_SAVE`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'Cookie': cookie
+    },
+    body: params.toString()
+  });
+
+  if (!res2.ok) {
+    return { success: false, error: `HTTP ${res2.status}` };
+  }
+
+  const data2 = await res2.json();
+
+  if (data2.respuesta && data2.respuesta.startsWith('-')) {
+    return { success: false, error: data2.respuesta.substring(1).trim() };
+  }
+
+  console.log(`CRM: email sent to ${toEmail} on ticket #${ticketId} (rid=${data2.rid})`);
+  return { success: true, ticketId, rid: data2.rid };
+}
+
 module.exports = {
   isConfigured,
   getTickets,
@@ -1158,5 +1302,6 @@ module.exports = {
   fetchClients,
   fetchTicketEmails,
   fetchEmailDetail,
-  fetchTicketDetail
+  fetchTicketDetail,
+  sendTicketEmail
 };

@@ -373,14 +373,10 @@ router.post('/', async (req, res) => {
         return { error: 'No se pudo enviar el email. Verifica la configuración SMTP.' };
       }
       if (name === 'reply_ticket_email') {
-        // 1. Fetch email thread for context
+        // 1. Fetch email thread for subject context
         const emails = await crm.fetchTicketEmails(input.ticket_id);
 
-        // 2. Get ticket detail for client name and subject context
-        const ticketDetail = await crm.fetchTicketDetail(input.ticket_id);
-        const clientName = ticketDetail?.cliente || 'Cliente';
-
-        // 3. Determine subject line
+        // 2. Determine subject line
         let subject = `RE: Ticket #${input.ticket_id}`;
         if (emails.length > 0) {
           const lastSubject = emails[0].asunto || '';
@@ -394,38 +390,22 @@ router.post('/', async (req, res) => {
           subject += ` #${input.ticket_id}`;
         }
 
-        // 4. Build HTML email body
-        const htmlBody = `<p>Estimado/a ${clientName},</p>` +
-          input.reply_text.split('\n').map(line => `<p>${line}</p>`).join('') +
-          `<br><p>Atentamente,</p><p><strong>Equipo de Soporte — SmartGroup / ALPHA</strong></p>`;
+        // 3. Build HTML email body (JDS handles @FIRMA@ replacement)
+        const htmlBody = input.reply_text.split('\n').map(line => `<p>${line}</p>`).join('\n') +
+          '\n<p><em>@FIRMA@</em></p>\n';
 
-        // 5. Send via SMTP
-        const ok = await email.sendEmail({
-          to: input.to_email,
-          subject,
-          html: htmlBody,
-          text: input.reply_text
-        });
+        // 4. Send via JDS native email (TKT_SAVE with HAYMAILC=1)
+        const result = await crm.sendTicketEmail(input.ticket_id, input.to_email, subject, htmlBody);
 
-        if (!ok) {
-          return { error: 'No se pudo enviar el email. Verifica la configuración SMTP.' };
-        }
-
-        // 6. Log in ticket seguimiento
-        const now = new Date();
-        const dateStr = `${String(now.getDate()).padStart(2, '0')}/${String(now.getMonth() + 1).padStart(2, '0')}`;
-        const segText = `${dateStr} - Email enviado a ${input.to_email}: "${subject}" (via ARIS)`;
-        try {
-          await crm.updateSeguimiento(input.ticket_id, segText);
-        } catch (e) {
-          console.error('Failed to update seguimiento after email:', e.message);
+        if (!result.success) {
+          return { error: result.error || 'No se pudo enviar el email a través del CRM.' };
         }
 
         return {
           success: true,
-          message: `Email enviado a ${input.to_email} y registrado en seguimiento del ticket #${input.ticket_id}`,
+          message: `Email enviado a ${input.to_email} via CRM JDS y registrado en el hilo del ticket #${input.ticket_id}`,
           subject,
-          emailThread: emails.length
+          emailThread: emails.length + 1
         };
       }
       return { error: `Unknown tool: ${name}` };
