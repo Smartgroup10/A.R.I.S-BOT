@@ -6,6 +6,7 @@ export const useAdminStore = defineStore('admin', () => {
   const users = ref([])
   const stats = ref(null)
   const roleDefaults = ref({ admin: [], user: [] })
+  const userMetrics = ref([])
   const loading = ref(false)
 
   async function loadStats() {
@@ -65,10 +66,19 @@ export const useAdminStore = defineStore('admin', () => {
     return adminApi.updateUserSourceOverrides(userId, sources)
   }
 
+  async function loadUserMetrics() {
+    try {
+      userMetrics.value = await adminApi.fetchUserMetrics()
+    } catch (err) {
+      console.error('Error loading user metrics:', err)
+    }
+  }
+
   return {
     users,
     stats,
     roleDefaults,
+    userMetrics,
     loading,
     loadStats,
     loadUsers,
@@ -79,6 +89,7 @@ export const useAdminStore = defineStore('admin', () => {
     loadRoleDefaults,
     updateRoleDefaults,
     loadUserSourceAccess,
-    updateUserSourceOverrides
+    updateUserSourceOverrides,
+    loadUserMetrics
   }
 })

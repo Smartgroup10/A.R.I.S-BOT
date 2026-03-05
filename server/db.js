@@ -143,6 +143,15 @@ async function initDb() {
     }
   } catch { /* columns may already exist */ }
 
+  // Migration: add sources_used column to messages if missing
+  try {
+    const msgCols = db.exec("PRAGMA table_info(messages)");
+    const hasSourcesUsed = msgCols.length > 0 && msgCols[0].values.some(row => row[1] === 'sources_used');
+    if (!hasSourcesUsed) {
+      db.run('ALTER TABLE messages ADD COLUMN sources_used TEXT DEFAULT NULL');
+    }
+  } catch { /* column may already exist */ }
+
   // Migration: set default roles
   db.run("UPDATE users SET role = 'admin' WHERE email = 'stefano.yepez@smartgroup.es' AND (role IS NULL OR role = '')");
   db.run("UPDATE users SET role = 'user' WHERE role IS NULL OR role = ''");
@@ -249,11 +258,11 @@ function deleteConversation(id) {
 
 // --- Messages ---
 
-function addMessage(conversationId, role, content) {
+function addMessage(conversationId, role, content, sourcesUsed = null) {
   const stmt = getDb().prepare(
-    'INSERT INTO messages (conversation_id, role, content) VALUES (?, ?, ?)'
+    'INSERT INTO messages (conversation_id, role, content, sources_used) VALUES (?, ?, ?, ?)'
   );
-  stmt.run([conversationId, role, content]);
+  stmt.run([conversationId, role, content, sourcesUsed ? JSON.stringify(sourcesUsed) : null]);
   stmt.free();
   // Get inserted ID
   const idResult = getDb().exec('SELECT last_insert_rowid() as id');
@@ -576,6 +585,35 @@ function getEffectiveSourceAccess(userId, role) {
   return result;
 }
 
+// --- Admin: User Metrics ---
+
+function getUserMetrics() {
+  const results = [];
+  const stmt = getDb().prepare(`
+    SELECT
+      u.id as user_id,
+      u.name,
+      u.email,
+      u.role,
+      u.department,
+      COUNT(DISTINCT CASE WHEN m.role = 'user' THEN m.id END) as total_messages,
+      COUNT(DISTINCT c.id) as total_conversations,
+      MAX(m.created_at) as last_activity,
+      GROUP_CONCAT(CASE WHEN m.role = 'assistant' AND m.sources_used IS NOT NULL THEN m.sources_used END, '|||') as all_sources
+    FROM users u
+    LEFT JOIN conversations c ON c.user_id = u.id
+    LEFT JOIN messages m ON m.conversation_id = c.id
+    WHERE u.active = 1
+    GROUP BY u.id
+    ORDER BY last_activity DESC
+  `);
+  while (stmt.step()) {
+    results.push(stmt.getAsObject());
+  }
+  stmt.free();
+  return results;
+}
+
 module.exports = {
   initDb,
   createConversation,
@@ -609,5 +647,6 @@ module.exports = {
   setUserSourceOverride,
   deleteUserSourceOverride,
   getEffectiveSourceAccess,
-  deleteUser
+  deleteUser,
+  getUserMetrics
 };

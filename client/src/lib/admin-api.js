@@ -103,6 +103,12 @@ export async function deleteAdminUser(id) {
   return res.json()
 }
 
+export async function fetchUserMetrics() {
+  const res = await fetch(`${API_BASE}/user-metrics`, { headers: authHeaders() })
+  handleUnauthorized(res)
+  return res.json()
+}
+
 export async function deleteUserSourceOverride(userId, sourceKey) {
   const res = await fetch(`${API_BASE}/sources/user/${userId}/${sourceKey}`, {
     method: 'DELETE',

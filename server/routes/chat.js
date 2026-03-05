@@ -278,6 +278,14 @@ router.post('/', async (req, res) => {
 
     const [bookstackCtx, ragCtx, fibrasCtx, crmCtx, resolutionCtx, directTicketCtx, clientCtx, desviosCtx, tekiFibrasCtx] = await Promise.all(searches);
 
+    // Track which sources were used
+    const usedSources = [];
+    if (bookstackCtx) usedSources.push('bookstack');
+    if (ragCtx) usedSources.push('rag');
+    if (fibrasCtx) usedSources.push('fibras');
+    if (crmCtx || resolutionCtx || directTicketCtx || clientCtx) usedSources.push('crm');
+    if (desviosCtx || tekiFibrasCtx) usedSources.push('teki');
+
     // Build source priority instructions
     const foundSources = [];
     if (bookstackCtx) foundSources.push('Wiki corporativa (BookStack)');
@@ -441,7 +449,7 @@ router.post('/', async (req, res) => {
 
       // Save assistant response (text portions only)
       if (fullResponse) {
-        db.addMessage(convId, 'assistant', fullResponse);
+        db.addMessage(convId, 'assistant', fullResponse, usedSources.length > 0 ? usedSources : null);
       }
 
       // Generate title in background (don't block the response)

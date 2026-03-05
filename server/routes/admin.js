@@ -264,4 +264,46 @@ router.delete('/users/:id', (req, res) => {
   }
 });
 
+// GET /api/admin/user-metrics — per-user activity metrics
+router.get('/user-metrics', (req, res) => {
+  try {
+    const raw = db.getUserMetrics();
+    const metrics = raw.map(row => {
+      // Aggregate source frequencies from all_sources (joined by |||)
+      const sourceFreq = {};
+      if (row.all_sources) {
+        const chunks = row.all_sources.split('|||').filter(Boolean);
+        for (const chunk of chunks) {
+          try {
+            const arr = JSON.parse(chunk);
+            for (const src of arr) {
+              sourceFreq[src] = (sourceFreq[src] || 0) + 1;
+            }
+          } catch { /* skip malformed */ }
+        }
+      }
+      // Sort by frequency descending
+      const topSources = Object.entries(sourceFreq)
+        .sort((a, b) => b[1] - a[1])
+        .map(([key, count]) => ({ key, count }));
+
+      return {
+        user_id: row.user_id,
+        name: row.name,
+        email: row.email,
+        role: row.role,
+        department: row.department,
+        total_messages: row.total_messages,
+        total_conversations: row.total_conversations,
+        last_activity: row.last_activity,
+        top_sources: topSources
+      };
+    });
+    res.json(metrics);
+  } catch (err) {
+    console.error('Admin user-metrics error:', err);
+    res.status(500).json({ error: 'Error obteniendo métricas de usuarios' });
+  }
+});
+
 module.exports = router;
