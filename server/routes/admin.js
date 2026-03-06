@@ -3,8 +3,21 @@ const bcrypt = require('bcryptjs');
 const db = require('../db');
 const emailService = require('../services/email');
 const vault = require('../services/vault');
+const { getProviderModel } = require('../services/ai');
 
 const router = express.Router();
+
+// GET /api/admin/usage — API usage stats
+router.get('/usage', (req, res) => {
+  try {
+    const stats = db.getApiUsageStats();
+    const { provider, model } = getProviderModel();
+    res.json({ ...stats, active_provider: provider, active_model: model });
+  } catch (err) {
+    console.error('Admin usage error:', err);
+    res.status(500).json({ error: 'Error obteniendo estadísticas de uso' });
+  }
+});
 
 // GET /api/admin/stats — dashboard stats
 router.get('/stats', (req, res) => {

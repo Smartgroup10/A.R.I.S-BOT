@@ -9,6 +9,7 @@ export const useAdminStore = defineStore('admin', () => {
   const userMetrics = ref([])
   const knowledgeArticles = ref([])
   const knowledgeStats = ref({ total: 0, totalUses: 0 })
+  const apiUsage = ref(null)
   const vaultCredentials = ref([])
   const vaultConfigured = ref(false)
   const loading = ref(false)
@@ -78,6 +79,14 @@ export const useAdminStore = defineStore('admin', () => {
     }
   }
 
+  async function loadApiUsage() {
+    try {
+      apiUsage.value = await adminApi.fetchApiUsage()
+    } catch (err) {
+      console.error('Error loading API usage:', err)
+    }
+  }
+
   async function loadKnowledgeArticles() {
     try {
       const data = await adminApi.fetchKnowledgeArticles()
@@ -133,6 +142,7 @@ export const useAdminStore = defineStore('admin', () => {
     stats,
     roleDefaults,
     userMetrics,
+    apiUsage,
     knowledgeArticles,
     knowledgeStats,
     loading,
@@ -147,6 +157,7 @@ export const useAdminStore = defineStore('admin', () => {
     loadUserSourceAccess,
     updateUserSourceOverrides,
     loadUserMetrics,
+    loadApiUsage,
     loadKnowledgeArticles,
     updateKnowledgeArticle,
     deleteKnowledgeArticle,

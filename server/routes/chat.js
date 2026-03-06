@@ -3,7 +3,7 @@ const path = require('path');
 const fs = require('fs');
 const multer = require('multer');
 const { v4: uuidv4 } = require('uuid');
-const { streamChat, streamChatWithVision, generateTitle, generateFollowUps, getToolDefinitions } = require('../services/ai');
+const { streamChat, streamChatWithVision, generateTitle, generateFollowUps, getToolDefinitions, getProviderModel } = require('../services/ai');
 const { getSystemPrompt } = require('../system-prompt');
 const rag = require('../services/rag');
 const bookstack = require('../services/bookstack');
@@ -465,6 +465,7 @@ router.post('/', async (req, res) => {
     let streamMessages = [...history];
     let currentStream = null;
     const MAX_TOOL_ROUNDS = 3;
+    const { provider: aiProvider, model: aiModel } = getProviderModel();
 
     // Handle client disconnect
     req.on('close', () => {
@@ -501,6 +502,14 @@ router.post('/', async (req, res) => {
         console.log(`Round ${round}: waiting for finalMessage...`);
         const finalMessage = await currentStream.finalMessage();
         console.log(`Round ${round}: stop_reason=${finalMessage.stop_reason}, content blocks=${finalMessage.content.length}`);
+
+        // Track API usage
+        try {
+          const usage = currentStream.getUsage ? currentStream.getUsage() : null;
+          if (usage && (usage.input_tokens > 0 || usage.output_tokens > 0)) {
+            db.addApiUsage(aiProvider, aiModel, usage.input_tokens, usage.output_tokens, req.user.id, convId, 'chat');
+          }
+        } catch (e) { console.error('Usage tracking error:', e.message); }
 
         if (ended) break;
 
@@ -550,14 +559,22 @@ router.post('/', async (req, res) => {
 
       // Generate follow-up suggestions async (non-blocking)
       if (fullResponse) {
-        generateFollowUps(message.trim(), fullResponse).then(suggestions => {
+        generateFollowUps(message.trim(), fullResponse).then(result => {
+          const suggestions = result ? result.suggestions : null;
+          if (result && result.usage) {
+            try { db.addApiUsage(aiProvider, aiModel, result.usage.input_tokens, result.usage.output_tokens, req.user.id, convId, 'followups'); } catch {}
+          }
           if (suggestions && Array.isArray(suggestions) && suggestions.length > 0) {
             safeWrite(`data: ${JSON.stringify({ type: 'suggestions', suggestions })}\n\n`);
           }
         }).catch(() => {}).finally(() => {
           // Generate title and finish
           if (isNew) {
-            generateTitle(message.trim()).then(title => {
+            generateTitle(message.trim()).then(result => {
+              const title = result ? result.title : 'Nueva conversación';
+              if (result && result.usage) {
+                try { db.addApiUsage(aiProvider, aiModel, result.usage.input_tokens, result.usage.output_tokens, req.user.id, convId, 'title'); } catch {}
+              }
               db.updateConversationTitle(convId, title);
               safeWrite(`data: ${JSON.stringify({ type: 'title', title })}\n\n`);
               safeWrite(`data: ${JSON.stringify({ type: 'done' })}\n\n`);

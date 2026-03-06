@@ -2,6 +2,12 @@ import { authHeaders, handleUnauthorized } from './api'
 
 const API_BASE = '/api/admin'
 
+export async function fetchApiUsage() {
+  const res = await fetch(`${API_BASE}/usage`, { headers: authHeaders() })
+  handleUnauthorized(res)
+  return res.json()
+}
+
 export async function fetchAdminStats() {
   const res = await fetch(`${API_BASE}/stats`, { headers: authHeaders() })
   handleUnauthorized(res)

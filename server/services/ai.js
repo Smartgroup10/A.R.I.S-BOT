@@ -25,7 +25,7 @@ const GROQ_KEY = process.env.GROQ_API_KEY;
 const GROQ_MODEL = process.env.GROQ_MODEL || 'llama-3.3-70b-versatile';
 
 /**
- * Stream chat via Claude
+ * Stream chat via Claude — wraps SDK stream to capture usage from finalMessage
  */
 function streamClaude(messages, systemPrompt, tools) {
   const opts = {
@@ -38,6 +38,19 @@ function streamClaude(messages, systemPrompt, tools) {
     opts.tools = tools;
   }
   const stream = getAnthropic().messages.stream(opts);
+
+  // Wrap finalMessage to capture usage
+  const origFinalMessage = stream.finalMessage.bind(stream);
+  let _usage = null;
+  stream.finalMessage = async () => {
+    const msg = await origFinalMessage();
+    if (msg.usage) {
+      _usage = { input_tokens: msg.usage.input_tokens || 0, output_tokens: msg.usage.output_tokens || 0 };
+    }
+    return msg;
+  };
+  stream.getUsage = () => _usage;
+
   return stream;
 }
 
@@ -136,6 +149,7 @@ function streamOpenAI(messages, systemPrompt, tools) {
   let _reject = null;
   let activeStream = null;
   let timeoutId = null;
+  let _usage = null;
 
   const finalPromise = new Promise((resolve, reject) => {
     _resolve = resolve;
@@ -171,6 +185,7 @@ function streamOpenAI(messages, systemPrompt, tools) {
         model: OPENAI_MODEL,
         max_tokens: 4096,
         stream: true,
+        stream_options: { include_usage: true },
         messages: claudeMessagesToOpenAI(messages, systemPrompt)
       };
 
@@ -186,6 +201,11 @@ function streamOpenAI(messages, systemPrompt, tools) {
 
       for await (const chunk of activeStream) {
         if (resolved) break; // aborted
+
+        // Usage comes in a chunk with empty choices
+        if (chunk.usage) {
+          _usage = { input_tokens: chunk.usage.prompt_tokens || 0, output_tokens: chunk.usage.completion_tokens || 0 };
+        }
 
         const choice = chunk.choices?.[0];
         if (!choice) continue;
@@ -252,6 +272,7 @@ function streamOpenAI(messages, systemPrompt, tools) {
   })();
 
   emitter.finalMessage = () => finalPromise;
+  emitter.getUsage = () => _usage;
   emitter.abort = () => {
     if (activeStream && activeStream.controller) {
       try { activeStream.controller.abort(); } catch {}
@@ -350,6 +371,7 @@ function streamGroq(messages, systemPrompt) {
   })();
 
   emitter.finalMessage = () => finalPromise;
+  emitter.getUsage = () => null; // Groq streaming doesn't provide usage
   emitter.abort = () => { /* Groq streams auto-close */ };
 
   return emitter;
@@ -607,7 +629,8 @@ async function generateTitle(userMessage) {
 
     if (!res.ok) throw new Error(`Groq API ${res.status}`);
     const data = await res.json();
-    return data.choices[0].message.content.trim();
+    const usage = data.usage ? { input_tokens: data.usage.prompt_tokens || 0, output_tokens: data.usage.completion_tokens || 0 } : null;
+    return { title: data.choices[0].message.content.trim(), usage };
   }
 
   if (PROVIDER === 'openai') {
@@ -616,7 +639,8 @@ async function generateTitle(userMessage) {
       max_tokens: 50,
       messages: [{ role: 'user', content: prompt }]
     });
-    return response.choices[0].message.content.trim();
+    const usage = response.usage ? { input_tokens: response.usage.prompt_tokens || 0, output_tokens: response.usage.completion_tokens || 0 } : null;
+    return { title: response.choices[0].message.content.trim(), usage };
   }
 
   // Claude
@@ -625,7 +649,8 @@ async function generateTitle(userMessage) {
     max_tokens: 50,
     messages: [{ role: 'user', content: prompt }]
   });
-  return response.content[0].text.trim();
+  const usage = response.usage ? { input_tokens: response.usage.input_tokens || 0, output_tokens: response.usage.output_tokens || 0 } : null;
+  return { title: response.content[0].text.trim(), usage };
 }
 
 /**
@@ -653,9 +678,10 @@ Asistente: "${lastAssistantResponse.substring(0, 500)}"`;
           messages: [{ role: 'user', content: prompt }]
         })
       });
-      if (!res.ok) return null;
+      if (!res.ok) return { suggestions: null, usage: null };
       const data = await res.json();
-      return JSON.parse(data.choices[0].message.content.trim());
+      const usage = data.usage ? { input_tokens: data.usage.prompt_tokens || 0, output_tokens: data.usage.completion_tokens || 0 } : null;
+      return { suggestions: JSON.parse(data.choices[0].message.content.trim()), usage };
     }
 
     if (PROVIDER === 'openai') {
@@ -665,7 +691,8 @@ Asistente: "${lastAssistantResponse.substring(0, 500)}"`;
         temperature: 0.7,
         messages: [{ role: 'user', content: prompt }]
       });
-      return JSON.parse(response.choices[0].message.content.trim());
+      const usage = response.usage ? { input_tokens: response.usage.prompt_tokens || 0, output_tokens: response.usage.completion_tokens || 0 } : null;
+      return { suggestions: JSON.parse(response.choices[0].message.content.trim()), usage };
     }
 
     // Claude
@@ -675,9 +702,10 @@ Asistente: "${lastAssistantResponse.substring(0, 500)}"`;
       temperature: 0.7,
       messages: [{ role: 'user', content: prompt }]
     });
-    return JSON.parse(response.content[0].text.trim());
+    const usage = response.usage ? { input_tokens: response.usage.input_tokens || 0, output_tokens: response.usage.output_tokens || 0 } : null;
+    return { suggestions: JSON.parse(response.content[0].text.trim()), usage };
   } catch {
-    return null;
+    return { suggestions: null, usage: null };
   }
 }
 
@@ -685,4 +713,10 @@ function getProvider() {
   return PROVIDER;
 }
 
-module.exports = { streamChat, streamChatWithVision, generateTitle, generateFollowUps, getProvider, getToolDefinitions };
+function getProviderModel() {
+  if (PROVIDER === 'groq') return { provider: 'groq', model: GROQ_MODEL };
+  if (PROVIDER === 'openai') return { provider: 'openai', model: OPENAI_MODEL };
+  return { provider: 'claude', model: 'claude-sonnet-4-20250514' };
+}
+
+module.exports = { streamChat, streamChatWithVision, generateTitle, generateFollowUps, getProvider, getProviderModel, getToolDefinitions };

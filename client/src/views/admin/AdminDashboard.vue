@@ -7,7 +7,26 @@ const admin = useAdminStore()
 onMounted(() => {
   admin.loadStats()
   admin.loadUserMetrics()
+  admin.loadApiUsage()
 })
+
+function formatCost(value) {
+  if (!value && value !== 0) return '$0.00'
+  return '$' + value.toFixed(4)
+}
+
+function formatTokens(value) {
+  if (!value) return '0'
+  if (value >= 1000000) return (value / 1000000).toFixed(1) + 'M'
+  if (value >= 1000) return (value / 1000).toFixed(1) + 'K'
+  return value.toString()
+}
+
+function formatDate(dateStr) {
+  if (!dateStr) return ''
+  const [y, m, d] = dateStr.split('-')
+  return `${d}/${m}`
+}
 
 const sourceLabels = {
   bookstack: 'BookStack (Wiki)',
@@ -93,6 +112,91 @@ function timeAgo(dateStr) {
             <span class="text-2xl font-bold text-gray-300">{{ admin.stats.feedback.total }}</span>
             <span class="text-sm text-gray-400 ml-2">Total</span>
           </div>
+        </div>
+      </div>
+
+      <!-- API Usage -->
+      <div v-if="admin.apiUsage" class="space-y-4">
+        <h2 class="text-lg font-semibold text-white">Consumo API</h2>
+
+        <!-- Usage cards -->
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div class="bg-[#1a1f36] rounded-xl p-5 border border-[#252b45]">
+            <div class="text-3xl font-bold text-cyan-400">{{ formatTokens(admin.apiUsage.total_tokens) }}</div>
+            <div class="text-sm text-gray-400 mt-1">Tokens totales</div>
+          </div>
+          <div class="bg-[#1a1f36] rounded-xl p-5 border border-[#252b45]">
+            <div class="text-3xl font-bold text-amber-400">{{ formatCost(admin.apiUsage.total_cost) }}</div>
+            <div class="text-sm text-gray-400 mt-1">Coste estimado</div>
+          </div>
+          <div class="bg-[#1a1f36] rounded-xl p-5 border border-[#252b45]">
+            <div class="text-3xl font-bold text-blue-400">{{ admin.apiUsage.total_calls }}</div>
+            <div class="text-sm text-gray-400 mt-1">Llamadas API</div>
+          </div>
+          <div class="bg-[#1a1f36] rounded-xl p-5 border border-[#252b45]">
+            <div class="text-2xl font-bold text-green-400">{{ admin.apiUsage.active_model }}</div>
+            <div class="text-sm text-gray-400 mt-1">Modelo activo ({{ admin.apiUsage.active_provider }})</div>
+          </div>
+        </div>
+
+        <!-- Provider breakdown -->
+        <div v-if="admin.apiUsage.by_provider && admin.apiUsage.by_provider.length > 0" class="bg-[#1a1f36] rounded-xl p-5 border border-[#252b45]">
+          <h3 class="text-sm font-semibold text-gray-300 mb-3">Desglose por Proveedor/Modelo</h3>
+          <div class="overflow-x-auto">
+            <table class="w-full text-sm">
+              <thead>
+                <tr class="text-left text-gray-400 border-b border-[#252b45]">
+                  <th class="pb-2 pr-4">Proveedor</th>
+                  <th class="pb-2 pr-4">Modelo</th>
+                  <th class="pb-2 pr-4 text-right">Llamadas</th>
+                  <th class="pb-2 pr-4 text-right">Input</th>
+                  <th class="pb-2 pr-4 text-right">Output</th>
+                  <th class="pb-2 text-right">Coste</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="row in admin.apiUsage.by_provider" :key="row.provider + row.model" class="border-b border-[#252b45]/50">
+                  <td class="py-2 pr-4 text-gray-300 capitalize">{{ row.provider }}</td>
+                  <td class="py-2 pr-4 text-gray-200 font-mono text-xs">{{ row.model }}</td>
+                  <td class="py-2 pr-4 text-right text-gray-200">{{ row.calls }}</td>
+                  <td class="py-2 pr-4 text-right text-gray-300">{{ formatTokens(row.input_tokens) }}</td>
+                  <td class="py-2 pr-4 text-right text-gray-300">{{ formatTokens(row.output_tokens) }}</td>
+                  <td class="py-2 text-right text-amber-400 font-medium">{{ formatCost(row.cost) }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Daily usage (last 30 days) -->
+        <div v-if="admin.apiUsage.daily && admin.apiUsage.daily.length > 0" class="bg-[#1a1f36] rounded-xl p-5 border border-[#252b45]">
+          <h3 class="text-sm font-semibold text-gray-300 mb-3">Consumo diario (30 dias)</h3>
+          <div class="overflow-x-auto max-h-80 overflow-y-auto">
+            <table class="w-full text-sm">
+              <thead class="sticky top-0 bg-[#1a1f36]">
+                <tr class="text-left text-gray-400 border-b border-[#252b45]">
+                  <th class="pb-2 pr-4">Fecha</th>
+                  <th class="pb-2 pr-4 text-right">Llamadas</th>
+                  <th class="pb-2 pr-4 text-right">Input</th>
+                  <th class="pb-2 pr-4 text-right">Output</th>
+                  <th class="pb-2 text-right">Coste</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="row in admin.apiUsage.daily" :key="row.day" class="border-b border-[#252b45]/50">
+                  <td class="py-2 pr-4 text-gray-200">{{ formatDate(row.day) }}</td>
+                  <td class="py-2 pr-4 text-right text-gray-200">{{ row.calls }}</td>
+                  <td class="py-2 pr-4 text-right text-gray-300">{{ formatTokens(row.input_tokens) }}</td>
+                  <td class="py-2 pr-4 text-right text-gray-300">{{ formatTokens(row.output_tokens) }}</td>
+                  <td class="py-2 text-right text-amber-400">{{ formatCost(row.cost) }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div v-else class="bg-[#1a1f36] rounded-xl p-5 border border-[#252b45] text-gray-400 text-sm">
+          No hay datos de consumo API todavia. Los datos se registran al enviar mensajes en el chat.
         </div>
       </div>
 

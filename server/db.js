@@ -126,6 +126,20 @@ function initDb() {
   `);
 
   db.exec(`
+    CREATE TABLE IF NOT EXISTS api_usage (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      provider TEXT NOT NULL,
+      model TEXT NOT NULL,
+      input_tokens INTEGER DEFAULT 0,
+      output_tokens INTEGER DEFAULT 0,
+      user_id INTEGER,
+      conversation_id TEXT,
+      call_type TEXT DEFAULT 'chat',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
+  db.exec(`
     CREATE TABLE IF NOT EXISTS vault_credentials (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL,
@@ -629,6 +643,91 @@ function searchVaultCredentials(query, limit = 10) {
   return results.slice(0, limit);
 }
 
+// --- API Usage Tracking ---
+
+const COST_PER_MILLION = {
+  'gpt-4o-mini': { input: 0.15, output: 0.60 },
+  'gpt-4o': { input: 2.50, output: 10.00 },
+  'claude-sonnet-4-20250514': { input: 3.00, output: 15.00 },
+  'llama-3.3-70b-versatile': { input: 0.59, output: 0.79 }
+};
+
+function addApiUsage(provider, model, inputTokens, outputTokens, userId, conversationId, callType) {
+  getDb().prepare(
+    'INSERT INTO api_usage (provider, model, input_tokens, output_tokens, user_id, conversation_id, call_type) VALUES (?, ?, ?, ?, ?, ?, ?)'
+  ).run(provider, model, inputTokens || 0, outputTokens || 0, userId || null, conversationId || null, callType || 'chat');
+}
+
+function getApiUsageStats() {
+  const d = getDb();
+
+  const totals = d.prepare(`
+    SELECT
+      COUNT(*) as total_calls,
+      COALESCE(SUM(input_tokens), 0) as total_input,
+      COALESCE(SUM(output_tokens), 0) as total_output,
+      COALESCE(SUM(input_tokens + output_tokens), 0) as total_tokens
+    FROM api_usage
+  `).get();
+
+  const byDay = d.prepare(`
+    SELECT
+      DATE(created_at) as day,
+      COUNT(*) as calls,
+      SUM(input_tokens) as input_tokens,
+      SUM(output_tokens) as output_tokens,
+      model
+    FROM api_usage
+    WHERE created_at >= datetime('now', '-30 days')
+    GROUP BY DATE(created_at), model
+    ORDER BY day DESC
+  `).all();
+
+  const byProvider = d.prepare(`
+    SELECT
+      provider,
+      model,
+      COUNT(*) as calls,
+      SUM(input_tokens) as input_tokens,
+      SUM(output_tokens) as output_tokens
+    FROM api_usage
+    GROUP BY provider, model
+    ORDER BY calls DESC
+  `).all();
+
+  // Calculate estimated costs
+  let totalCost = 0;
+  for (const row of byProvider) {
+    const rates = COST_PER_MILLION[row.model] || { input: 1.0, output: 3.0 };
+    row.cost = ((row.input_tokens / 1e6) * rates.input) + ((row.output_tokens / 1e6) * rates.output);
+    totalCost += row.cost;
+  }
+
+  // Aggregate daily data (merge models per day) and add cost
+  const dailyMap = {};
+  for (const row of byDay) {
+    if (!dailyMap[row.day]) {
+      dailyMap[row.day] = { day: row.day, calls: 0, input_tokens: 0, output_tokens: 0, cost: 0 };
+    }
+    dailyMap[row.day].calls += row.calls;
+    dailyMap[row.day].input_tokens += row.input_tokens;
+    dailyMap[row.day].output_tokens += row.output_tokens;
+    const rates = COST_PER_MILLION[row.model] || { input: 1.0, output: 3.0 };
+    dailyMap[row.day].cost += ((row.input_tokens / 1e6) * rates.input) + ((row.output_tokens / 1e6) * rates.output);
+  }
+  const daily = Object.values(dailyMap).sort((a, b) => b.day.localeCompare(a.day));
+
+  return {
+    total_calls: totals.total_calls,
+    total_input: totals.total_input,
+    total_output: totals.total_output,
+    total_tokens: totals.total_tokens,
+    total_cost: totalCost,
+    daily,
+    by_provider: byProvider
+  };
+}
+
 module.exports = {
   initDb,
   getDb,
@@ -680,5 +779,8 @@ module.exports = {
   getVaultCredential,
   updateVaultCredential,
   deleteVaultCredential,
-  searchVaultCredentials
+  searchVaultCredentials,
+  addApiUsage,
+  getApiUsageStats,
+  COST_PER_MILLION
 };
