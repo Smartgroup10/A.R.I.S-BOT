@@ -333,7 +333,9 @@ async function closeTicket(ticketId, solucion) {
       TKIDTM: (f.TKIDTM || '').toString(),
       TMAREA: f.TMAREA || '',
       TKIDUS: (f.TKIDUS || '').toString(),
-      TKESTADO: 'Cerrado',
+      TKIDUSULT: (f.TKIDUS || '').toString(),
+      TKESTADO: f.TKESTADO || '',
+      TKIDESTADO: '3',
       TKFECHA: f.TKFECHA || '',
       TKHORA: f.TKHORA || '',
       TKFECHALIM: f.TKFECHALIM || '',
@@ -345,6 +347,8 @@ async function closeTicket(ticketId, solucion) {
       TKSOLUCION: solucion,
       TKINTERNO: newSeg,
       TKORIGEN: f.TKORIGEN || '',
+      TKUID: (f.TKUID || '').toString(),
+      TKBLOQUEO: '0',
       SCRH: '900',
       SCRW: '1440'
     }).toString()
