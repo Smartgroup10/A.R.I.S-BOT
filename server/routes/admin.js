@@ -2,6 +2,7 @@ const express = require('express');
 const bcrypt = require('bcryptjs');
 const db = require('../db');
 const emailService = require('../services/email');
+const vault = require('../services/vault');
 
 const router = express.Router();
 
@@ -353,6 +354,111 @@ router.delete('/knowledge/:id', (req, res) => {
   } catch (err) {
     console.error('Admin KB delete error:', err);
     res.status(500).json({ error: 'Error eliminando artículo' });
+  }
+});
+
+// --- Vault Credentials Admin ---
+
+// GET /api/admin/vault — list all credentials (password NOT decrypted)
+router.get('/vault', (req, res) => {
+  try {
+    if (!vault.isConfigured()) {
+      return res.json({ credentials: [], configured: false });
+    }
+    const credentials = db.getAllVaultCredentials();
+    res.json({ credentials, configured: true });
+  } catch (err) {
+    console.error('Admin vault list error:', err);
+    res.status(500).json({ error: 'Error obteniendo credenciales' });
+  }
+});
+
+// POST /api/admin/vault — create credential
+router.post('/vault', (req, res) => {
+  try {
+    if (!vault.isConfigured()) {
+      return res.status(400).json({ error: 'Vault no configurado. Añade VAULT_KEY al .env' });
+    }
+    const { name, username, password, url, notes, tags, departments } = req.body;
+    if (!name || !password) {
+      return res.status(400).json({ error: 'Nombre y password son requeridos' });
+    }
+    const encrypted = vault.encrypt(password);
+    const id = db.addVaultCredential(name, username, encrypted, url, notes, tags, departments, req.user.email);
+    res.status(201).json({ id, name, message: 'Credencial creada' });
+  } catch (err) {
+    console.error('Admin vault create error:', err);
+    res.status(500).json({ error: 'Error creando credencial' });
+  }
+});
+
+// GET /api/admin/vault/:id — detail with decrypted password
+router.get('/vault/:id', (req, res) => {
+  try {
+    if (!vault.isConfigured()) {
+      return res.status(400).json({ error: 'Vault no configurado' });
+    }
+    const cred = db.getVaultCredential(parseInt(req.params.id));
+    if (!cred) return res.status(404).json({ error: 'Credencial no encontrada' });
+
+    let decryptedPassword = '';
+    try {
+      decryptedPassword = vault.decrypt(cred.password_encrypted);
+    } catch (e) {
+      decryptedPassword = '[error al descifrar]';
+    }
+
+    res.json({
+      ...cred,
+      password: decryptedPassword,
+      password_encrypted: undefined
+    });
+  } catch (err) {
+    console.error('Admin vault detail error:', err);
+    res.status(500).json({ error: 'Error obteniendo credencial' });
+  }
+});
+
+// PUT /api/admin/vault/:id — update credential
+router.put('/vault/:id', (req, res) => {
+  try {
+    if (!vault.isConfigured()) {
+      return res.status(400).json({ error: 'Vault no configurado' });
+    }
+    const id = parseInt(req.params.id);
+    const cred = db.getVaultCredential(id);
+    if (!cred) return res.status(404).json({ error: 'Credencial no encontrada' });
+
+    const { name, username, password, url, notes, tags, departments } = req.body;
+    const fields = {};
+    if (name !== undefined) fields.name = name;
+    if (username !== undefined) fields.username = username;
+    if (password !== undefined) fields.password_encrypted = vault.encrypt(password);
+    if (url !== undefined) fields.url = url;
+    if (notes !== undefined) fields.notes = notes;
+    if (tags !== undefined) fields.tags = tags;
+    if (departments !== undefined) fields.departments = departments;
+
+    db.updateVaultCredential(id, fields);
+    res.json({ message: 'Credencial actualizada' });
+  } catch (err) {
+    console.error('Admin vault update error:', err);
+    res.status(500).json({ error: 'Error actualizando credencial' });
+  }
+});
+
+// DELETE /api/admin/vault/:id — delete credential
+router.delete('/vault/:id', (req, res) => {
+  try {
+    const id = parseInt(req.params.id);
+    const cred = db.getVaultCredential(id);
+    if (!cred) return res.status(404).json({ error: 'Credencial no encontrada' });
+
+    db.deleteVaultCredential(id);
+    res.json({ message: 'Credencial eliminada' });
+  } catch (err) {
+    console.error('Admin vault delete error:', err);
+    res.status(500).json({ error: 'Error eliminando credencial' });
   }
 });
 

@@ -13,6 +13,7 @@ const email = require('../services/email');
 const teki = require('../services/teki');
 const db = require('../db');
 const knowledge = require('../services/knowledge');
+const vault = require('../services/vault');
 
 const router = express.Router();
 
@@ -278,11 +279,16 @@ router.post('/', async (req, res) => {
       searches.push(
         withTimeout(Promise.resolve().then(() => knowledge.getKnowledgeContext(msg)).catch(() => null), SEARCH_TIMEOUT)
       );
+
+      // Vault credentials
+      searches.push(sourceAccess.vault && vault.isConfigured() && vault.mightNeedCredentials(msg)
+        ? withTimeout(Promise.resolve().then(() => vault.getCredentialsContext(msg, userContext.department, userContext.role)).catch(() => null), SEARCH_TIMEOUT)
+        : Promise.resolve(null));
     } else {
-      for (let i = 0; i < 10; i++) searches.push(Promise.resolve(null));
+      for (let i = 0; i < 11; i++) searches.push(Promise.resolve(null));
     }
 
-    const [bookstackCtx, ragCtx, fibrasCtx, crmCtx, resolutionCtx, directTicketCtx, clientCtx, desviosCtx, tekiFibrasCtx, knowledgeCtx] = await Promise.all(searches);
+    const [bookstackCtx, ragCtx, fibrasCtx, crmCtx, resolutionCtx, directTicketCtx, clientCtx, desviosCtx, tekiFibrasCtx, knowledgeCtx, vaultCtx] = await Promise.all(searches);
 
     // Track which sources were used
     const usedSources = [];
@@ -292,6 +298,7 @@ router.post('/', async (req, res) => {
     if (crmCtx || resolutionCtx || directTicketCtx || clientCtx) usedSources.push('crm');
     if (desviosCtx || tekiFibrasCtx) usedSources.push('teki');
     if (knowledgeCtx) usedSources.push('knowledge');
+    if (vaultCtx) usedSources.push('vault');
 
     // Build source priority instructions
     const foundSources = [];
@@ -305,6 +312,7 @@ router.post('/', async (req, res) => {
     if (desviosCtx) foundSources.push('Desvíos de Líneas Fijas (Teki)');
     if (tekiFibrasCtx) foundSources.push('Solicitudes de Fibra (Teki)');
     if (knowledgeCtx) foundSources.push('Base de Conocimiento Interna');
+    if (vaultCtx) foundSources.push('Vault de Credenciales');
 
     if (foundSources.length > 0) {
       systemPrompt += `\n---\n## JERARQUÍA DE FUENTES (OBLIGATORIO)\n\nSe encontró información en: **${foundSources.join(' y ')}**.\n\n**REGLAS DE PRIORIDAD:**\n1. **SIEMPRE usa primero la información de las fuentes internas** (Wiki y documentación) que se incluyen abajo.\n2. **NO des respuestas genéricas ni de internet** si hay información relevante en las fuentes internas.\n3. **Solo usa tu conocimiento general** si las fuentes internas NO contienen información relevante para la pregunta.\n4. Si la info interna es parcial, complémenta con tu conocimiento pero SIEMPRE indicando qué viene de la empresa y qué es información general.\n---\n`;
@@ -323,6 +331,7 @@ router.post('/', async (req, res) => {
     if (desviosCtx) systemPrompt += desviosCtx;
     if (tekiFibrasCtx) systemPrompt += tekiFibrasCtx;
     if (knowledgeCtx) systemPrompt += knowledgeCtx;
+    if (vaultCtx) systemPrompt += vaultCtx;
 
     // Smart history: check if user references past conversations
     let historyUsed = false;

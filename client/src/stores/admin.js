@@ -9,6 +9,8 @@ export const useAdminStore = defineStore('admin', () => {
   const userMetrics = ref([])
   const knowledgeArticles = ref([])
   const knowledgeStats = ref({ total: 0, totalUses: 0 })
+  const vaultCredentials = ref([])
+  const vaultConfigured = ref(false)
   const loading = ref(false)
 
   async function loadStats() {
@@ -99,6 +101,33 @@ export const useAdminStore = defineStore('admin', () => {
     knowledgeStats.value.total = Math.max(0, knowledgeStats.value.total - 1)
   }
 
+  async function loadVault() {
+    try {
+      const data = await adminApi.fetchVaultCredentials()
+      vaultCredentials.value = data.credentials || []
+      vaultConfigured.value = data.configured !== false
+    } catch (err) {
+      console.error('Error loading vault:', err)
+    }
+  }
+
+  async function createCredential(data) {
+    const result = await adminApi.createVaultCredential(data)
+    await loadVault()
+    return result
+  }
+
+  async function updateCredential(id, data) {
+    const result = await adminApi.updateVaultCredential(id, data)
+    await loadVault()
+    return result
+  }
+
+  async function deleteCredential(id) {
+    await adminApi.deleteVaultCredential(id)
+    vaultCredentials.value = vaultCredentials.value.filter(c => c.id !== id)
+  }
+
   return {
     users,
     stats,
@@ -120,6 +149,12 @@ export const useAdminStore = defineStore('admin', () => {
     loadUserMetrics,
     loadKnowledgeArticles,
     updateKnowledgeArticle,
-    deleteKnowledgeArticle
+    deleteKnowledgeArticle,
+    vaultCredentials,
+    vaultConfigured,
+    loadVault,
+    createCredential,
+    updateCredential,
+    deleteCredential
   }
 })

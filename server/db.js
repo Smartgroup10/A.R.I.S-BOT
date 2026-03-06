@@ -125,6 +125,22 @@ function initDb() {
     )
   `);
 
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS vault_credentials (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      username TEXT DEFAULT '',
+      password_encrypted TEXT NOT NULL,
+      url TEXT DEFAULT '',
+      notes TEXT DEFAULT '',
+      tags TEXT DEFAULT '',
+      departments TEXT DEFAULT '',
+      created_by TEXT DEFAULT '',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
   // Migration: add user_id column to conversations if missing
   const convCols = db.pragma('table_info(conversations)');
   if (!convCols.some(row => row.name === 'user_id')) {
@@ -157,7 +173,7 @@ function initDb() {
   // Seed role_source_defaults if empty
   const rsdCount = db.prepare('SELECT COUNT(*) as cnt FROM role_source_defaults').get();
   if (rsdCount.cnt === 0) {
-    const sources = ['bookstack', 'rag', 'fibras', 'crm', 'teki'];
+    const sources = ['bookstack', 'rag', 'fibras', 'crm', 'teki', 'vault'];
     const roles = ['admin', 'user'];
     const insertRsd = db.prepare('INSERT OR IGNORE INTO role_source_defaults (role, source_key, enabled) VALUES (?, ?, 1)');
     for (const role of roles) {
@@ -165,6 +181,14 @@ function initDb() {
         insertRsd.run(role, src);
       }
     }
+  }
+
+  // Migration: ensure vault source exists in role_source_defaults (for existing DBs)
+  const vaultRsd = db.prepare("SELECT COUNT(*) as cnt FROM role_source_defaults WHERE source_key = 'vault'").get();
+  if (vaultRsd.cnt === 0) {
+    const insertRsd = db.prepare('INSERT OR IGNORE INTO role_source_defaults (role, source_key, enabled) VALUES (?, ?, 1)');
+    insertRsd.run('admin', 'vault');
+    insertRsd.run('user', 'vault');
   }
 
   // Seed default admin if no users exist
@@ -434,7 +458,7 @@ function getEffectiveSourceAccess(userId, role) {
   for (const d of defaults) {
     result[d.source_key] = overrideMap[d.source_key] !== undefined ? !!overrideMap[d.source_key] : !!d.enabled;
   }
-  for (const key of ['bookstack', 'rag', 'fibras', 'crm', 'teki']) {
+  for (const key of ['bookstack', 'rag', 'fibras', 'crm', 'teki', 'vault']) {
     if (result[key] === undefined) {
       result[key] = overrideMap[key] !== undefined ? !!overrideMap[key] : true;
     }
@@ -546,6 +570,65 @@ function deleteKnowledgeArticle(id) {
   getDb().prepare('DELETE FROM knowledge_base WHERE id = ?').run(id);
 }
 
+// --- Vault Credentials ---
+
+function addVaultCredential(name, username, passwordEncrypted, url, notes, tags, departments, createdBy) {
+  const result = getDb().prepare(
+    'INSERT INTO vault_credentials (name, username, password_encrypted, url, notes, tags, departments, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+  ).run(name, username || '', passwordEncrypted, url || '', notes || '', tags || '', departments || '', createdBy || '');
+  return Number(result.lastInsertRowid);
+}
+
+function getAllVaultCredentials() {
+  return getDb().prepare(
+    'SELECT id, name, username, url, notes, tags, departments, created_by, created_at, updated_at FROM vault_credentials ORDER BY name ASC'
+  ).all();
+}
+
+function getVaultCredential(id) {
+  return getDb().prepare('SELECT * FROM vault_credentials WHERE id = ?').get(id) || null;
+}
+
+function updateVaultCredential(id, fields) {
+  const allowed = ['name', 'username', 'password_encrypted', 'url', 'notes', 'tags', 'departments'];
+  const sets = [];
+  const params = [];
+  for (const key of allowed) {
+    if (fields[key] !== undefined) {
+      sets.push(`${key} = ?`);
+      params.push(fields[key]);
+    }
+  }
+  if (sets.length === 0) return false;
+  sets.push("updated_at = datetime('now')");
+  params.push(id);
+  getDb().prepare(`UPDATE vault_credentials SET ${sets.join(', ')} WHERE id = ?`).run(...params);
+  return true;
+}
+
+function deleteVaultCredential(id) {
+  getDb().prepare('DELETE FROM vault_credentials WHERE id = ?').run(id);
+}
+
+function searchVaultCredentials(query, limit = 10) {
+  const terms = query.toLowerCase().split(/\s+/).filter(t => t.length > 2);
+  if (terms.length === 0) return [];
+
+  const all = getDb().prepare('SELECT * FROM vault_credentials').all();
+  const results = [];
+
+  for (const row of all) {
+    const text = (row.name + ' ' + row.username + ' ' + row.tags + ' ' + row.notes + ' ' + row.url).toLowerCase();
+    const matches = terms.filter(t => text.includes(t)).length;
+    if (matches > 0) {
+      results.push({ ...row, score: matches });
+    }
+  }
+
+  results.sort((a, b) => b.score - a.score);
+  return results.slice(0, limit);
+}
+
 module.exports = {
   initDb,
   getDb,
@@ -591,5 +674,11 @@ module.exports = {
   getAllKnowledgeArticles,
   getKnowledgeArticle,
   updateKnowledgeArticle,
-  deleteKnowledgeArticle
+  deleteKnowledgeArticle,
+  addVaultCredential,
+  getAllVaultCredentials,
+  getVaultCredential,
+  updateVaultCredential,
+  deleteVaultCredential,
+  searchVaultCredentials
 };

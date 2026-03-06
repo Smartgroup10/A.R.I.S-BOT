@@ -156,3 +156,55 @@ export async function deleteUserSourceOverride(userId, sourceKey) {
   handleUnauthorized(res)
   return res.json()
 }
+
+// --- Vault Credentials Admin ---
+
+export async function fetchVaultCredentials() {
+  const res = await fetch(`${API_BASE}/vault`, { headers: authHeaders() })
+  handleUnauthorized(res)
+  return res.json()
+}
+
+export async function createVaultCredential(data) {
+  const res = await fetch(`${API_BASE}/vault`, {
+    method: 'POST',
+    headers: authHeaders(),
+    body: JSON.stringify(data)
+  })
+  if (!res.ok) {
+    const err = await res.json()
+    throw new Error(err.error || 'Error creando credencial')
+  }
+  return res.json()
+}
+
+export async function fetchVaultCredential(id) {
+  const res = await fetch(`${API_BASE}/vault/${id}`, { headers: authHeaders() })
+  handleUnauthorized(res)
+  return res.json()
+}
+
+export async function updateVaultCredential(id, data) {
+  const res = await fetch(`${API_BASE}/vault/${id}`, {
+    method: 'PUT',
+    headers: authHeaders(),
+    body: JSON.stringify(data)
+  })
+  if (!res.ok) {
+    const err = await res.json()
+    throw new Error(err.error || 'Error actualizando credencial')
+  }
+  return res.json()
+}
+
+export async function deleteVaultCredential(id) {
+  const res = await fetch(`${API_BASE}/vault/${id}`, {
+    method: 'DELETE',
+    headers: authHeaders()
+  })
+  if (!res.ok) {
+    const err = await res.json()
+    throw new Error(err.error || 'Error eliminando credencial')
+  }
+  return res.json()
+}

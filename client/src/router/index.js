@@ -9,6 +9,7 @@ const AdminUsers = () => import('../views/admin/AdminUsers.vue')
 const AdminUserEdit = () => import('../views/admin/AdminUserEdit.vue')
 const AdminSources = () => import('../views/admin/AdminSources.vue')
 const AdminKnowledge = () => import('../views/admin/AdminKnowledge.vue')
+const AdminVault = () => import('../views/admin/AdminVault.vue')
 const SetupPassword = () => import('../views/SetupPassword.vue')
 
 const routes = [
@@ -38,7 +39,8 @@ const routes = [
       { path: 'users', name: 'admin-users', component: AdminUsers },
       { path: 'users/:id', name: 'admin-user-edit', component: AdminUserEdit, props: true },
       { path: 'sources', name: 'admin-sources', component: AdminSources },
-      { path: 'knowledge', name: 'admin-knowledge', component: AdminKnowledge }
+      { path: 'knowledge', name: 'admin-knowledge', component: AdminKnowledge },
+      { path: 'vault', name: 'admin-vault', component: AdminVault }
     ]
   }
 ]
