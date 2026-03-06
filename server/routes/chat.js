@@ -276,7 +276,7 @@ router.post('/', async (req, res) => {
 
       // Knowledge base (always search — may contain useful info for any topic)
       searches.push(
-        withTimeout(knowledge.getKnowledgeContext(msg).catch(() => null), SEARCH_TIMEOUT)
+        withTimeout(Promise.resolve().then(() => knowledge.getKnowledgeContext(msg)).catch(() => null), SEARCH_TIMEOUT)
       );
     } else {
       for (let i = 0; i < 10; i++) searches.push(Promise.resolve(null));
