@@ -278,6 +278,93 @@ async function updateSeguimiento(ticketId, text) {
   return { success: true, ticketId, rid: data2.rid };
 }
 
+/**
+ * Close a ticket: set estado=Cerrado, add solution text, append note to seguimiento.
+ * Invalidates ticket cache after closing.
+ */
+async function closeTicket(ticketId, solucion) {
+  const cookie = await login();
+
+  // Fetch current ticket data
+  const res1 = await fetch(`${CRM_URL}/aServerSide.jsp?FCT=TKT_FICHA`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'Cookie': cookie
+    },
+    body: new URLSearchParams({
+      crmEmpresa: CRM_EMPRESA,
+      TKID: ticketId,
+      CLID: '0',
+      MAID: '0'
+    }).toString()
+  });
+
+  if (!res1.ok) throw new Error(`CRM detail error: ${res1.status}`);
+  const data1 = await res1.json();
+  if (data1.respuesta && data1.respuesta.startsWith('-')) {
+    throw new Error(`Ticket ${ticketId} no encontrado`);
+  }
+
+  const f = data1.ficha || {};
+
+  // Build closing note
+  const now = new Date();
+  const dateStr = `${String(now.getDate()).padStart(2,'0')}/${String(now.getMonth()+1).padStart(2,'0')}`;
+  const resumenCorto = solucion.length > 120 ? solucion.substring(0, 120) + '...' : solucion;
+  const closingNote = `${dateStr} - Ticket cerrado via ARIA: ${resumenCorto}`;
+
+  const currentSeg = (f.TKINTERNO || '').trim();
+  const newSeg = currentSeg ? currentSeg + '\n' + closingNote : closingNote;
+
+  // Save with estado=Cerrado and solution
+  const res2 = await fetch(`${CRM_URL}/aServerSide.jsp?FCT=TKT_SAVE`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'Cookie': cookie
+    },
+    body: new URLSearchParams({
+      crmEmpresa: CRM_EMPRESA,
+      CRMEMPRE: CRM_EMPRESA,
+      TKID: f.TKID.toString(),
+      TKIDCL: (f.TKIDCL || 0).toString(),
+      TKIDAR: (f.TKIDAR || '').toString(),
+      TKIDTM: (f.TKIDTM || '').toString(),
+      TMAREA: f.TMAREA || '',
+      TKIDUS: (f.TKIDUS || '').toString(),
+      TKESTADO: 'Cerrado',
+      TKFECHA: f.TKFECHA || '',
+      TKHORA: f.TKHORA || '',
+      TKFECHALIM: f.TKFECHALIM || '',
+      TKPRIORIDAD: (f.TKPRIORIDAD || 0).toString(),
+      TKCONTACTO: f.TKCONTACTO || '',
+      TKTELEFONO: f.TKTELEFONO || '',
+      TKEMAIL: f.TKEMAIL || '',
+      TKDESCRIPCION: f.TKDESCRIPCION || '',
+      TKSOLUCION: solucion,
+      TKINTERNO: newSeg,
+      TKORIGEN: f.TKORIGEN || '',
+      SCRH: '900',
+      SCRW: '1440'
+    }).toString()
+  });
+
+  if (!res2.ok) throw new Error(`CRM save error: ${res2.status}`);
+  const data2 = await res2.json();
+
+  if (data2.respuesta && data2.respuesta.startsWith('-')) {
+    throw new Error(`Error al cerrar: ${data2.respuesta.substring(1)}`);
+  }
+
+  // Invalidate caches
+  cachedTickets = null;
+  cacheTime = 0;
+
+  console.log(`CRM: ticket #${ticketId} cerrado`);
+  return { success: true, ticketId, rid: data2.rid };
+}
+
 // --- Client search via CLI_LISTA ---
 
 function parseClientId(idField) {
@@ -421,6 +508,23 @@ async function getClientContext(message) {
       }
     }
 
+    // Fetch CRM lines for top 3 clients (paginates automatically)
+    let crmLinesResults = {};
+    const clientsWithId = clients.slice(0, 3).filter(c => c.id);
+    const crmLinesSearches = await Promise.all(
+      clientsWithId.map(c =>
+        fetchClientLines(c.id).catch(e => {
+          console.error(`CRM: error fetching lines for client ${c.id}:`, e.message);
+          return [];
+        })
+      )
+    );
+    for (let i = 0; i < clientsWithId.length; i++) {
+      if (crmLinesSearches[i].length > 0) {
+        crmLinesResults[clientsWithId[i].id] = crmLinesSearches[i];
+      }
+    }
+
     for (const c of clients.slice(0, 10)) {
       context += `### Cliente #${c.id}: ${c.nombre}\n`;
       context += `| Campo | Valor |\n|---|---|\n`;
@@ -433,6 +537,21 @@ async function getClientContext(message) {
       if (c.ultima_interaccion_fecha) context += `| **Última interacción** | ${c.ultima_interaccion_fecha} |\n`;
       if (c.ultima_interaccion) context += `| **Detalle interacción** | ${c.ultima_interaccion.substring(0, 300)} |\n`;
       context += '\n';
+
+      // Append CRM lines (contratos) for this client
+      const crmLines = crmLinesResults[c.id];
+      if (crmLines && crmLines.length > 0) {
+        context += `#### Líneas/Contratos de ${c.nombre} (CRM: ${crmLines.length} líneas)\n\n`;
+        context += `| Contrato | Línea Móvil | Fijo Virtual | ADSL/Sede | Fijo ADSL | Nº Corto | Fª Alta | Estado | Plan Tarifa |\n`;
+        context += `|---|---|---|---|---|---|---|---|---|\n`;
+        for (const l of crmLines.slice(0, 40)) {
+          context += `| ${l.contrato} | ${l.linea_movil || '-'} | ${l.fijo_virtual || '-'} | ${l.linea_adsl_sede || '-'} | ${l.fijo_adsl || '-'} | ${l.num_corto || '-'} | ${l.fecha_alta} | ${l.estado} | ${l.plan_tarifa || '-'} |\n`;
+        }
+        if (crmLines.length > 40) {
+          context += `\n_(Mostrando 40 de ${crmLines.length} líneas. Usa la herramienta get_client_lines para ver todas)_\n`;
+        }
+        context += '\n';
+      }
 
       // Append Fibras lines for this client
       const lineas = fibrasResults[c.nombre];
@@ -447,8 +566,8 @@ async function getClientContext(message) {
           context += `\n_(Mostrando 30 de ${lineas.length} líneas)_\n`;
         }
         context += '\n';
-      } else if (parseInt(c.lineas) > 0) {
-        context += `_(No se encontraron líneas de este cliente en el Sistema de Fibras)_\n\n`;
+      } else if (parseInt(c.lineas) > 0 && (!crmLines || crmLines.length === 0)) {
+        context += `_(No se encontraron líneas de este cliente en el Sistema de Fibras ni en el CRM)_\n\n`;
       }
     }
 
@@ -582,6 +701,82 @@ async function fetchClientTicketsById(clientId) {
       ultimo_usuario: d[9] || ''
     };
   });
+}
+
+// --- Client lines via BDClientesCTOFichaValida.jsp ---
+
+/**
+ * Fetch lines (contratos/líneas) for a client by their numeric CRM ID.
+ * Uses BDClientesCTOFichaValida.jsp with TIPOCHK=REFRESHLINCTO (not aServerSide.jsp).
+ * Returns array of line objects with: contrato, linea_movil, fijo_virtual, linea_adsl_sede,
+ * fijo_adsl, num_corto, fecha_alta, estado, fecha_baja, plan_tarifa
+ *
+ * @param {number|string} clientId - CRM client ID (CLID)
+ * @param {number} [pageSize=200] - Number of results per page
+ * @returns {Promise<Array>}
+ */
+async function fetchClientLines(clientId, pageSize = 200) {
+  const cookie = await login();
+
+  const allLines = [];
+  let start = 1;
+  let hasMore = true;
+
+  while (hasMore) {
+    const params = new URLSearchParams({
+      TIPOCHK: 'REFRESHLINCTO',
+      CLID: String(clientId),
+      I_START: String(start),
+      I_RECPAGE: String(pageSize),
+      crmEmpresa: CRM_EMPRESA
+    });
+
+    const res = await fetch(`${CRM_URL}/BDClientesCTOFichaValida.jsp`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Cookie': cookie
+      },
+      body: params.toString()
+    });
+
+    if (!res.ok) throw new Error(`CRM lines error: ${res.status}`);
+    const data = await res.json();
+
+    const rows = data.lista?.rows || [];
+    if (rows.length === 0) break;
+
+    for (const row of rows) {
+      const d = row.data || [];
+      // d[0] and d[1] contain JS links like "456217^javascript:Show_CTO(...)^_self"
+      const contrato = d[0] ? String(d[0]).split('^')[0] : '';
+      let lineaMov = d[1] ? String(d[1]).split('^')[0] : '';
+      // Clean placeholder labels like "-- adsl/fibra --"
+      if (lineaMov.startsWith('--')) lineaMov = '';
+      allLines.push({
+        contrato,
+        linea_movil: lineaMov,
+        fijo_virtual: d[2] || '',
+        linea_adsl_sede: d[3] || '',
+        fijo_adsl: d[4] || '',
+        num_corto: d[5] || '',
+        fecha_alta: d[6] || '',
+        estado: d[7] || '',
+        fecha_baja: d[8] || '',
+        plan_tarifa: d[9] || ''
+      });
+    }
+
+    // If we got fewer than pageSize, we've reached the end
+    if (rows.length < pageSize) {
+      hasMore = false;
+    } else {
+      start += pageSize;
+    }
+  }
+
+  console.log(`CRM: fetched ${allLines.length} lines for client ${clientId}`);
+  return allLines;
 }
 
 // --- Cache layer ---
@@ -769,6 +964,100 @@ const RESOLUTION_PATTERNS = [
 
 function mightNeedResolution(message) {
   return RESOLUTION_PATTERNS.some(p => p.test(message));
+}
+
+// --- Ticket classification suggestion ---
+
+// Tema name → ID mapping (reverse of what create_crm_ticket uses)
+const TEMA_NAME_TO_ID = {
+  'Centralita': 226,
+  'Centralitas': 226,
+  'Conectividad': 228,
+  'Configuración de endpoint': 225,
+  'Config endpoint': 225,
+  'Configuración endpoint': 225,
+  'Gestión de líneas móviles': 227,
+  'Líneas Móviles': 227,
+  'Equipos informáticos': 229,
+  'Equipos': 229,
+  'Instalación de equipos': 255,
+  'Instalación equipos': 255,
+  'Instalacion': 255,
+  'Visita de valoración/presupuesto': 232,
+  'Visita valoración': 232,
+  'General/Otros': 175,
+  'General': 175,
+};
+
+/**
+ * Suggest ticket classification (tema + prioridad) based on similar closed tickets.
+ * Returns: { tema_id, tema_nombre, prioridad, confianza, basado_en, tickets_similares }
+ */
+async function suggestTicketClassification(description) {
+  const results = await searchClosedSoporte(description, 20);
+
+  if (results.length === 0) {
+    return {
+      tema_id: 175,
+      tema_nombre: 'General/Otros',
+      prioridad: 0,
+      confianza: 0,
+      basado_en: 0,
+      tickets_similares: []
+    };
+  }
+
+  // Count tema frequency
+  const temaCount = {};
+  const prioridadCount = {};
+  for (const t of results) {
+    const tema = (t.tema || '').trim();
+    if (tema) temaCount[tema] = (temaCount[tema] || 0) + 1;
+    const prio = parseInt(t.prioridad) || 0;
+    prioridadCount[prio] = (prioridadCount[prio] || 0) + 1;
+  }
+
+  // Find most frequent tema
+  let topTema = 'General/Otros';
+  let topTemaCount = 0;
+  for (const [tema, count] of Object.entries(temaCount)) {
+    if (count > topTemaCount) {
+      topTema = tema;
+      topTemaCount = count;
+    }
+  }
+
+  // Find most frequent prioridad
+  let topPrio = 0;
+  let topPrioCount = 0;
+  for (const [prio, count] of Object.entries(prioridadCount)) {
+    if (count > topPrioCount) {
+      topPrio = parseInt(prio);
+      topPrioCount = count;
+    }
+  }
+
+  // Resolve tema to ID
+  const temaId = TEMA_NAME_TO_ID[topTema] || 175;
+  const confianza = Math.round((topTemaCount / results.length) * 100);
+
+  // Top 5 similar tickets as reference
+  const similares = results.slice(0, 5).map(t => ({
+    id: t.id,
+    tema: t.tema,
+    cliente: t.cliente,
+    descripcion: (t.descripcion || '').substring(0, 150)
+  }));
+
+  return {
+    tema_id: temaId,
+    tema_nombre: topTema,
+    prioridad: topPrio,
+    prioridad_texto: topPrio === 0 ? 'Normal' : topPrio === 1 ? 'Urgente' : 'Muy urgente',
+    confianza,
+    basado_en: results.length,
+    tickets_similares: similares
+  };
 }
 
 // --- Patterns to detect CRM/ticket queries ---
@@ -1348,5 +1637,8 @@ module.exports = {
   fetchEmailDetail,
   fetchTicketDetail,
   sendTicketEmail,
-  fetchClientTicketsById
+  fetchClientTicketsById,
+  fetchClientLines,
+  closeTicket,
+  suggestTicketClassification
 };

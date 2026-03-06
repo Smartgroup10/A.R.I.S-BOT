@@ -115,6 +115,21 @@ async function initDb() {
     )
   `);
 
+  db.run(`
+    CREATE TABLE IF NOT EXISTS knowledge_base (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      title TEXT NOT NULL,
+      problem TEXT NOT NULL,
+      solution TEXT NOT NULL,
+      keywords TEXT NOT NULL,
+      source_tickets TEXT DEFAULT '',
+      times_used INTEGER DEFAULT 0,
+      created_by TEXT DEFAULT 'ARIA',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
   // Migration: add user_id column to conversations if missing
   try {
     const cols = db.exec("PRAGMA table_info(conversations)");
@@ -614,6 +629,53 @@ function getUserMetrics() {
   return results;
 }
 
+// --- Knowledge Base ---
+
+function addKnowledgeArticle(title, problem, solution, keywords, sourceTickets, createdBy) {
+  const stmt = getDb().prepare(
+    'INSERT INTO knowledge_base (title, problem, solution, keywords, source_tickets, created_by) VALUES (?, ?, ?, ?, ?, ?)'
+  );
+  stmt.run([title, problem, solution, keywords, sourceTickets || '', createdBy || 'ARIA']);
+  stmt.free();
+  const idResult = getDb().exec('SELECT last_insert_rowid() as id');
+  const id = idResult[0]?.values[0]?.[0] || null;
+  save();
+  return id;
+}
+
+function searchKnowledgeBase(query, limit = 5) {
+  const stopwords = ['el','la','los','las','de','del','en','un','una','que','se','no','por','con','para','al','es','lo','como','su','me','ya','le','ha','mi','si','te','nos','hay','tiene','ser','muy','más','mas','este','esta','son','fue','han','sin','pero','todo','todos','hola','quiero','puedes','favor','necesito'];
+  const terms = query.toLowerCase().split(/\s+/).filter(t => t.length > 2 && !stopwords.includes(t));
+  if (terms.length === 0) return [];
+
+  const results = [];
+  const stmt = getDb().prepare('SELECT id, title, problem, solution, keywords, source_tickets, times_used, created_by, created_at FROM knowledge_base');
+  while (stmt.step()) {
+    const row = stmt.getAsObject();
+    const text = (row.title + ' ' + row.problem + ' ' + row.solution + ' ' + row.keywords).toLowerCase();
+    const matches = terms.filter(t => text.includes(t)).length;
+    if (matches > 0) {
+      results.push({ ...row, score: matches });
+    }
+  }
+  stmt.free();
+
+  results.sort((a, b) => b.score - a.score || b.times_used - a.times_used);
+  return results.slice(0, limit);
+}
+
+function incrementKnowledgeUsage(id) {
+  getDb().run("UPDATE knowledge_base SET times_used = times_used + 1, updated_at = datetime('now') WHERE id = ?", [id]);
+  save();
+}
+
+function getKnowledgeStats() {
+  const result = getDb().exec('SELECT COUNT(*) as total, SUM(times_used) as total_uses FROM knowledge_base');
+  if (result.length === 0) return { total: 0, totalUses: 0 };
+  const row = result[0].values[0];
+  return { total: row[0] || 0, totalUses: row[1] || 0 };
+}
+
 module.exports = {
   initDb,
   createConversation,
@@ -648,5 +710,9 @@ module.exports = {
   deleteUserSourceOverride,
   getEffectiveSourceAccess,
   deleteUser,
-  getUserMetrics
+  getUserMetrics,
+  addKnowledgeArticle,
+  searchKnowledgeBase,
+  incrementKnowledgeUsage,
+  getKnowledgeStats
 };

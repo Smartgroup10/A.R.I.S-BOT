@@ -12,6 +12,7 @@ const crm = require('../services/crm');
 const email = require('../services/email');
 const teki = require('../services/teki');
 const db = require('../db');
+const knowledge = require('../services/knowledge');
 
 const router = express.Router();
 
@@ -272,11 +273,16 @@ router.post('/', async (req, res) => {
       searches.push(sourceAccess.teki && teki.isConfigured() && teki.mightBeAboutTekiFibras(msg)
         ? withTimeout(teki.getTekiFibrasContext(msg).catch(() => null), SEARCH_TIMEOUT)
         : Promise.resolve(null));
+
+      // Knowledge base (always search — may contain useful info for any topic)
+      searches.push(
+        withTimeout(knowledge.getKnowledgeContext(msg).catch(() => null), SEARCH_TIMEOUT)
+      );
     } else {
-      for (let i = 0; i < 9; i++) searches.push(Promise.resolve(null));
+      for (let i = 0; i < 10; i++) searches.push(Promise.resolve(null));
     }
 
-    const [bookstackCtx, ragCtx, fibrasCtx, crmCtx, resolutionCtx, directTicketCtx, clientCtx, desviosCtx, tekiFibrasCtx] = await Promise.all(searches);
+    const [bookstackCtx, ragCtx, fibrasCtx, crmCtx, resolutionCtx, directTicketCtx, clientCtx, desviosCtx, tekiFibrasCtx, knowledgeCtx] = await Promise.all(searches);
 
     // Track which sources were used
     const usedSources = [];
@@ -285,6 +291,7 @@ router.post('/', async (req, res) => {
     if (fibrasCtx) usedSources.push('fibras');
     if (crmCtx || resolutionCtx || directTicketCtx || clientCtx) usedSources.push('crm');
     if (desviosCtx || tekiFibrasCtx) usedSources.push('teki');
+    if (knowledgeCtx) usedSources.push('knowledge');
 
     // Build source priority instructions
     const foundSources = [];
@@ -297,6 +304,7 @@ router.post('/', async (req, res) => {
     if (clientCtx) foundSources.push('Datos de Clientes (CRM)');
     if (desviosCtx) foundSources.push('Desvíos de Líneas Fijas (Teki)');
     if (tekiFibrasCtx) foundSources.push('Solicitudes de Fibra (Teki)');
+    if (knowledgeCtx) foundSources.push('Base de Conocimiento Interna');
 
     if (foundSources.length > 0) {
       systemPrompt += `\n---\n## JERARQUÍA DE FUENTES (OBLIGATORIO)\n\nSe encontró información en: **${foundSources.join(' y ')}**.\n\n**REGLAS DE PRIORIDAD:**\n1. **SIEMPRE usa primero la información de las fuentes internas** (Wiki y documentación) que se incluyen abajo.\n2. **NO des respuestas genéricas ni de internet** si hay información relevante en las fuentes internas.\n3. **Solo usa tu conocimiento general** si las fuentes internas NO contienen información relevante para la pregunta.\n4. Si la info interna es parcial, complémenta con tu conocimiento pero SIEMPRE indicando qué viene de la empresa y qué es información general.\n---\n`;
@@ -314,6 +322,7 @@ router.post('/', async (req, res) => {
     if (clientCtx) systemPrompt += clientCtx;
     if (desviosCtx) systemPrompt += desviosCtx;
     if (tekiFibrasCtx) systemPrompt += tekiFibrasCtx;
+    if (knowledgeCtx) systemPrompt += knowledgeCtx;
 
     // Smart history: check if user references past conversations
     let historyUsed = false;
@@ -355,6 +364,22 @@ router.post('/', async (req, res) => {
       if (name === 'add_seguimiento_crm') {
         return crm.updateSeguimiento(input.ticket_id, input.text);
       }
+      if (name === 'get_client_lines') {
+        const lines = await crm.fetchClientLines(input.client_id);
+        const summary = lines.slice(0, 50).map(l => ({
+          contrato: l.contrato,
+          linea_movil: l.linea_movil || null,
+          fijo_virtual: l.fijo_virtual || null,
+          linea_adsl_sede: l.linea_adsl_sede || null,
+          fijo_adsl: l.fijo_adsl || null,
+          num_corto: l.num_corto || null,
+          fecha_alta: l.fecha_alta,
+          estado: l.estado,
+          fecha_baja: l.fecha_baja || null,
+          plan_tarifa: l.plan_tarifa || null
+        }));
+        return { total: lines.length, showing: summary.length, lines: summary };
+      }
       if (name === 'create_crm_ticket') {
         return crm.createTicket({
           temaId: input.tema_id,
@@ -371,6 +396,21 @@ router.post('/', async (req, res) => {
         const ok = await email.sendEmail({ to: input.to_email, subject: input.subject, text: input.body });
         if (ok) return { success: true, message: `Email enviado a ${input.to_email}` };
         return { error: 'No se pudo enviar el email. Verifica la configuración SMTP.' };
+      }
+      if (name === 'close_crm_ticket') {
+        return crm.closeTicket(input.ticket_id, input.solucion);
+      }
+      if (name === 'suggest_ticket_classification') {
+        return crm.suggestTicketClassification(input.description);
+      }
+      if (name === 'save_knowledge') {
+        return knowledge.saveKnowledge({
+          title: input.title,
+          problem: input.problem,
+          solution: input.solution,
+          keywords: input.keywords,
+          sourceTickets: input.source_tickets || ''
+        });
       }
       if (name === 'reply_ticket_email') {
         // 1. Fetch email thread for subject context

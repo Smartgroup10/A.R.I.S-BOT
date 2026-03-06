@@ -478,6 +478,82 @@ const CRM_TOOLS = [
     }
   },
   {
+    name: 'get_client_lines',
+    description: 'Obtiene todas las líneas/contratos de un cliente del CRM por su ID numérico. Devuelve: contrato, línea móvil, fijo virtual, ADSL/sede, fijo ADSL, nº corto, fecha alta, estado, fecha baja, plan tarifa. Útil cuando el usuario pregunta por las líneas, contratos o servicios activos de un cliente.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        client_id: {
+          type: 'integer',
+          description: 'ID numérico del cliente en el CRM (CLID). Obtenerlo de la búsqueda de clientes o del contexto.'
+        }
+      },
+      required: ['client_id']
+    }
+  },
+  {
+    name: 'close_crm_ticket',
+    description: 'Cierra un ticket en el CRM estableciendo el estado a "Cerrado" y registrando la solución aplicada. SOLO usar cuando el usuario haya confirmado EXPLÍCITAMENTE que quiere cerrar el ticket. Antes de cerrar, SIEMPRE muestra un resumen (ticket, cliente, solución) y pide confirmación.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        ticket_id: {
+          type: 'string',
+          description: 'ID numérico del ticket a cerrar (ej: "16806")'
+        },
+        solucion: {
+          type: 'string',
+          description: 'Descripción de la solución aplicada. Debe ser clara y detallada para que quede registrada en el CRM.'
+        }
+      },
+      required: ['ticket_id', 'solucion']
+    }
+  },
+  {
+    name: 'suggest_ticket_classification',
+    description: 'Sugiere el tema y prioridad más apropiados para un nuevo ticket basándose en tickets cerrados similares. Usar ANTES de create_crm_ticket para clasificar automáticamente.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        description: {
+          type: 'string',
+          description: 'Descripción del problema o incidencia para clasificar'
+        }
+      },
+      required: ['description']
+    }
+  },
+  {
+    name: 'save_knowledge',
+    description: 'Guarda un artículo en la base de conocimiento interna para futuras consultas. Usar cuando se ha resuelto una incidencia y el usuario confirma que la solución funcionó, o cuando se quiere documentar un procedimiento.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        title: {
+          type: 'string',
+          description: 'Título corto y descriptivo del artículo (ej: "Router Teldat sin conexión tras reinicio")'
+        },
+        problem: {
+          type: 'string',
+          description: 'Descripción del problema o situación'
+        },
+        solution: {
+          type: 'string',
+          description: 'Solución verificada paso a paso'
+        },
+        keywords: {
+          type: 'string',
+          description: 'Palabras clave separadas por coma para facilitar búsquedas futuras (ej: "router, teldat, reinicio, conectividad")'
+        },
+        source_tickets: {
+          type: 'string',
+          description: 'IDs de tickets CRM relacionados, separados por coma (opcional, ej: "16648,16750")'
+        }
+      },
+      required: ['title', 'problem', 'solution', 'keywords']
+    }
+  },
+  {
     name: 'reply_ticket_email',
     description: 'Responde al hilo de correo de un cliente en un ticket del CRM. Lee el hilo de emails del ticket, envía la respuesta por email al cliente y registra la acción en el seguimiento del ticket. SOLO usar cuando el usuario haya confirmado EXPLÍCITAMENTE que quiere enviar la respuesta.',
     input_schema: {
