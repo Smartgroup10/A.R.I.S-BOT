@@ -9,15 +9,13 @@ const router = express.Router();
 router.get('/stats', (req, res) => {
   try {
     const users = db.getAllUsers();
-    const convResult = db.getDb().exec('SELECT COUNT(*) FROM conversations');
-    const msgResult = db.getDb().exec('SELECT COUNT(*) FROM messages');
     const feedbackStats = db.getFeedbackStats();
 
     res.json({
       users: users.length,
       activeUsers: users.filter(u => u.active).length,
-      conversations: convResult.length > 0 ? convResult[0].values[0][0] : 0,
-      messages: msgResult.length > 0 ? msgResult[0].values[0][0] : 0,
+      conversations: db.getConversationCount(),
+      messages: db.getMessageCount(),
       feedback: feedbackStats
     });
   } catch (err) {
@@ -303,6 +301,58 @@ router.get('/user-metrics', (req, res) => {
   } catch (err) {
     console.error('Admin user-metrics error:', err);
     res.status(500).json({ error: 'Error obteniendo métricas de usuarios' });
+  }
+});
+
+// --- Knowledge Base Admin ---
+
+// GET /api/admin/knowledge — list all articles
+router.get('/knowledge', (req, res) => {
+  try {
+    const articles = db.getAllKnowledgeArticles();
+    const stats = db.getKnowledgeStats();
+    res.json({ articles, stats });
+  } catch (err) {
+    console.error('Admin KB list error:', err);
+    res.status(500).json({ error: 'Error obteniendo artículos' });
+  }
+});
+
+// GET /api/admin/knowledge/:id — article detail
+router.get('/knowledge/:id', (req, res) => {
+  const article = db.getKnowledgeArticle(parseInt(req.params.id));
+  if (!article) return res.status(404).json({ error: 'Artículo no encontrado' });
+  res.json(article);
+});
+
+// PUT /api/admin/knowledge/:id — update article
+router.put('/knowledge/:id', (req, res) => {
+  try {
+    const id = parseInt(req.params.id);
+    const article = db.getKnowledgeArticle(id);
+    if (!article) return res.status(404).json({ error: 'Artículo no encontrado' });
+
+    const { title, problem, solution, keywords, source_tickets } = req.body;
+    db.updateKnowledgeArticle(id, { title, problem, solution, keywords, source_tickets });
+    res.json(db.getKnowledgeArticle(id));
+  } catch (err) {
+    console.error('Admin KB update error:', err);
+    res.status(500).json({ error: 'Error actualizando artículo' });
+  }
+});
+
+// DELETE /api/admin/knowledge/:id — delete article
+router.delete('/knowledge/:id', (req, res) => {
+  try {
+    const id = parseInt(req.params.id);
+    const article = db.getKnowledgeArticle(id);
+    if (!article) return res.status(404).json({ error: 'Artículo no encontrado' });
+
+    db.deleteKnowledgeArticle(id);
+    res.json({ message: 'Artículo eliminado' });
+  } catch (err) {
+    console.error('Admin KB delete error:', err);
+    res.status(500).json({ error: 'Error eliminando artículo' });
   }
 });
 

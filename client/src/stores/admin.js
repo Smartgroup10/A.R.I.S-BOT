@@ -7,6 +7,8 @@ export const useAdminStore = defineStore('admin', () => {
   const stats = ref(null)
   const roleDefaults = ref({ admin: [], user: [] })
   const userMetrics = ref([])
+  const knowledgeArticles = ref([])
+  const knowledgeStats = ref({ total: 0, totalUses: 0 })
   const loading = ref(false)
 
   async function loadStats() {
@@ -74,11 +76,36 @@ export const useAdminStore = defineStore('admin', () => {
     }
   }
 
+  async function loadKnowledgeArticles() {
+    try {
+      const data = await adminApi.fetchKnowledgeArticles()
+      knowledgeArticles.value = data.articles || []
+      knowledgeStats.value = data.stats || { total: 0, totalUses: 0 }
+    } catch (err) {
+      console.error('Error loading KB articles:', err)
+    }
+  }
+
+  async function updateKnowledgeArticle(id, data) {
+    const updated = await adminApi.updateKnowledgeArticle(id, data)
+    const idx = knowledgeArticles.value.findIndex(a => a.id === id)
+    if (idx >= 0) knowledgeArticles.value[idx] = { ...knowledgeArticles.value[idx], ...updated }
+    return updated
+  }
+
+  async function deleteKnowledgeArticle(id) {
+    await adminApi.deleteKnowledgeArticle(id)
+    knowledgeArticles.value = knowledgeArticles.value.filter(a => a.id !== id)
+    knowledgeStats.value.total = Math.max(0, knowledgeStats.value.total - 1)
+  }
+
   return {
     users,
     stats,
     roleDefaults,
     userMetrics,
+    knowledgeArticles,
+    knowledgeStats,
     loading,
     loadStats,
     loadUsers,
@@ -90,6 +117,9 @@ export const useAdminStore = defineStore('admin', () => {
     updateRoleDefaults,
     loadUserSourceAccess,
     updateUserSourceOverrides,
-    loadUserMetrics
+    loadUserMetrics,
+    loadKnowledgeArticles,
+    updateKnowledgeArticle,
+    deleteKnowledgeArticle
   }
 })

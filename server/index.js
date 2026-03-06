@@ -139,7 +139,7 @@ async function start() {
     process.exit(1);
   }
 
-  await initDb();
+  initDb();
   loadSystemPrompt();
   rag.loadIndex();
 

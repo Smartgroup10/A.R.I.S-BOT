@@ -8,6 +8,7 @@ const AdminDashboard = () => import('../views/admin/AdminDashboard.vue')
 const AdminUsers = () => import('../views/admin/AdminUsers.vue')
 const AdminUserEdit = () => import('../views/admin/AdminUserEdit.vue')
 const AdminSources = () => import('../views/admin/AdminSources.vue')
+const AdminKnowledge = () => import('../views/admin/AdminKnowledge.vue')
 const SetupPassword = () => import('../views/SetupPassword.vue')
 
 const routes = [
@@ -36,7 +37,8 @@ const routes = [
       { path: '', name: 'admin-dashboard', component: AdminDashboard },
       { path: 'users', name: 'admin-users', component: AdminUsers },
       { path: 'users/:id', name: 'admin-user-edit', component: AdminUserEdit, props: true },
-      { path: 'sources', name: 'admin-sources', component: AdminSources }
+      { path: 'sources', name: 'admin-sources', component: AdminSources },
+      { path: 'knowledge', name: 'admin-knowledge', component: AdminKnowledge }
     ]
   }
 ]

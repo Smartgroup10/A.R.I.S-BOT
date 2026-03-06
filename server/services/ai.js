@@ -628,8 +628,61 @@ async function generateTitle(userMessage) {
   return response.content[0].text.trim();
 }
 
+/**
+ * Generate contextual follow-up suggestions based on conversation.
+ * Returns array of 3 strings, or null on failure.
+ */
+async function generateFollowUps(lastUserMessage, lastAssistantResponse) {
+  const prompt = `Basándote en esta conversación, genera exactamente 3 preguntas de seguimiento cortas (máximo 8 palabras cada una) que el usuario podría querer hacer a continuación. Devuelve SOLO un JSON array de 3 strings, sin explicación.
+
+Usuario: "${lastUserMessage.substring(0, 300)}"
+Asistente: "${lastAssistantResponse.substring(0, 500)}"`;
+
+  try {
+    if (PROVIDER === 'groq') {
+      const res = await fetch(`${GROQ_BASE}/chat/completions`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${GROQ_KEY}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          model: GROQ_MODEL,
+          max_tokens: 200,
+          temperature: 0.7,
+          messages: [{ role: 'user', content: prompt }]
+        })
+      });
+      if (!res.ok) return null;
+      const data = await res.json();
+      return JSON.parse(data.choices[0].message.content.trim());
+    }
+
+    if (PROVIDER === 'openai') {
+      const response = await getOpenAI().chat.completions.create({
+        model: OPENAI_MODEL,
+        max_tokens: 200,
+        temperature: 0.7,
+        messages: [{ role: 'user', content: prompt }]
+      });
+      return JSON.parse(response.choices[0].message.content.trim());
+    }
+
+    // Claude
+    const response = await getAnthropic().messages.create({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 200,
+      temperature: 0.7,
+      messages: [{ role: 'user', content: prompt }]
+    });
+    return JSON.parse(response.content[0].text.trim());
+  } catch {
+    return null;
+  }
+}
+
 function getProvider() {
   return PROVIDER;
 }
 
-module.exports = { streamChat, streamChatWithVision, generateTitle, getProvider, getToolDefinitions };
+module.exports = { streamChat, streamChatWithVision, generateTitle, generateFollowUps, getProvider, getToolDefinitions };

@@ -222,6 +222,11 @@ export const useChatStore = defineStore('chat', () => {
         onToolResult(data) {
           activeToolCall.value = null
         },
+        onSuggestions(suggestions) {
+          if (suggestions && Array.isArray(suggestions) && suggestions.length > 0) {
+            followUpSuggestions.value = suggestions.slice(0, 3)
+          }
+        },
         onDone() {
           activeToolCall.value = null
           messages.value.push({ role: 'assistant', content: streamingContent.value })
@@ -234,8 +239,10 @@ export const useChatStore = defineStore('chat', () => {
             reloadMessages()
           }
 
-          // Generate follow-up suggestions
-          generateFollowUps()
+          // Fallback: if server didn't send suggestions, use department-based ones
+          if (followUpSuggestions.value.length === 0) {
+            generateFollowUps()
+          }
 
           if (!conversations.value.find(c => c.id === currentConversationId.value)) {
             loadConversations()

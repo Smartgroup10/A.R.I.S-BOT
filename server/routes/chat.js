@@ -3,7 +3,7 @@ const path = require('path');
 const fs = require('fs');
 const multer = require('multer');
 const { v4: uuidv4 } = require('uuid');
-const { streamChat, streamChatWithVision, generateTitle, getToolDefinitions } = require('../services/ai');
+const { streamChat, streamChatWithVision, generateTitle, generateFollowUps, getToolDefinitions } = require('../services/ai');
 const { getSystemPrompt } = require('../system-prompt');
 const rag = require('../services/rag');
 const bookstack = require('../services/bookstack');
@@ -539,18 +539,31 @@ router.post('/', async (req, res) => {
         db.addMessage(convId, 'assistant', fullResponse, usedSources.length > 0 ? usedSources : null);
       }
 
-      // Generate title in background (don't block the response)
-      if (isNew) {
-        generateTitle(message.trim()).then(title => {
-          db.updateConversationTitle(convId, title);
-          safeWrite(`data: ${JSON.stringify({ type: 'title', title })}\n\n`);
-          safeWrite(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
-          safeEnd();
-        }).catch(() => {
-          safeWrite(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
-          safeEnd();
+      // Generate follow-up suggestions async (non-blocking)
+      if (fullResponse) {
+        generateFollowUps(message.trim(), fullResponse).then(suggestions => {
+          if (suggestions && Array.isArray(suggestions) && suggestions.length > 0) {
+            safeWrite(`data: ${JSON.stringify({ type: 'suggestions', suggestions })}\n\n`);
+          }
+        }).catch(() => {}).finally(() => {
+          // Generate title and finish
+          if (isNew) {
+            generateTitle(message.trim()).then(title => {
+              db.updateConversationTitle(convId, title);
+              safeWrite(`data: ${JSON.stringify({ type: 'title', title })}\n\n`);
+              safeWrite(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
+              safeEnd();
+            }).catch(() => {
+              safeWrite(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
+              safeEnd();
+            });
+          } else {
+            safeWrite(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
+            safeEnd();
+          }
         });
       } else {
+        // No response — just finish
         safeWrite(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
         safeEnd();
       }

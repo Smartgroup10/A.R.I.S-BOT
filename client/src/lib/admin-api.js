@@ -109,6 +109,45 @@ export async function fetchUserMetrics() {
   return res.json()
 }
 
+// --- Knowledge Base Admin ---
+
+export async function fetchKnowledgeArticles() {
+  const res = await fetch(`${API_BASE}/knowledge`, { headers: authHeaders() })
+  handleUnauthorized(res)
+  return res.json()
+}
+
+export async function fetchKnowledgeArticle(id) {
+  const res = await fetch(`${API_BASE}/knowledge/${id}`, { headers: authHeaders() })
+  handleUnauthorized(res)
+  return res.json()
+}
+
+export async function updateKnowledgeArticle(id, data) {
+  const res = await fetch(`${API_BASE}/knowledge/${id}`, {
+    method: 'PUT',
+    headers: authHeaders(),
+    body: JSON.stringify(data)
+  })
+  if (!res.ok) {
+    const err = await res.json()
+    throw new Error(err.error || 'Error actualizando artículo')
+  }
+  return res.json()
+}
+
+export async function deleteKnowledgeArticle(id) {
+  const res = await fetch(`${API_BASE}/knowledge/${id}`, {
+    method: 'DELETE',
+    headers: authHeaders()
+  })
+  if (!res.ok) {
+    const err = await res.json()
+    throw new Error(err.error || 'Error eliminando artículo')
+  }
+  return res.json()
+}
+
 export async function deleteUserSourceOverride(userId, sourceKey) {
   const res = await fetch(`${API_BASE}/sources/user/${userId}/${sourceKey}`, {
     method: 'DELETE',

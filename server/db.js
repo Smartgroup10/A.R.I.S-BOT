@@ -1,4 +1,4 @@
-const initSqlJs = require('sql.js');
+const Database = require('better-sqlite3');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
@@ -9,17 +9,12 @@ const DB_PATH = path.join(DB_DIR, 'assistant.db');
 
 let db = null;
 
-async function initDb() {
-  const SQL = await initSqlJs();
+function initDb() {
+  db = new Database(DB_PATH);
+  db.pragma('journal_mode = WAL');
+  db.pragma('foreign_keys = ON');
 
-  if (fs.existsSync(DB_PATH)) {
-    const buffer = fs.readFileSync(DB_PATH);
-    db = new SQL.Database(buffer);
-  } else {
-    db = new SQL.Database();
-  }
-
-  db.run(`
+  db.exec(`
     CREATE TABLE IF NOT EXISTS users (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       email TEXT UNIQUE NOT NULL,
@@ -32,7 +27,7 @@ async function initDb() {
     )
   `);
 
-  db.run(`
+  db.exec(`
     CREATE TABLE IF NOT EXISTS conversations (
       id TEXT PRIMARY KEY,
       title TEXT NOT NULL DEFAULT 'Nueva conversación',
@@ -45,7 +40,7 @@ async function initDb() {
     )
   `);
 
-  db.run(`
+  db.exec(`
     CREATE TABLE IF NOT EXISTS messages (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       conversation_id TEXT NOT NULL,
@@ -56,7 +51,7 @@ async function initDb() {
     )
   `);
 
-  db.run(`
+  db.exec(`
     CREATE TABLE IF NOT EXISTS feedback (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       message_id INTEGER NOT NULL,
@@ -67,7 +62,7 @@ async function initDb() {
     )
   `);
 
-  db.run(`
+  db.exec(`
     CREATE TABLE IF NOT EXISTS attachments (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       message_id INTEGER,
@@ -82,7 +77,7 @@ async function initDb() {
 
   // --- New admin tables ---
 
-  db.run(`
+  db.exec(`
     CREATE TABLE IF NOT EXISTS user_preferences (
       user_id INTEGER PRIMARY KEY,
       avatar_path TEXT,
@@ -94,7 +89,7 @@ async function initDb() {
     )
   `);
 
-  db.run(`
+  db.exec(`
     CREATE TABLE IF NOT EXISTS role_source_defaults (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       role TEXT NOT NULL,
@@ -104,7 +99,7 @@ async function initDb() {
     )
   `);
 
-  db.run(`
+  db.exec(`
     CREATE TABLE IF NOT EXISTS user_source_overrides (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       user_id INTEGER NOT NULL,
@@ -115,7 +110,7 @@ async function initDb() {
     )
   `);
 
-  db.run(`
+  db.exec(`
     CREATE TABLE IF NOT EXISTS knowledge_base (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       title TEXT NOT NULL,
@@ -131,80 +126,61 @@ async function initDb() {
   `);
 
   // Migration: add user_id column to conversations if missing
-  try {
-    const cols = db.exec("PRAGMA table_info(conversations)");
-    const hasUserId = cols.length > 0 && cols[0].values.some(row => row[1] === 'user_id');
-    if (!hasUserId) {
-      db.run('ALTER TABLE conversations ADD COLUMN user_id INTEGER');
-    }
-  } catch { /* column may already exist */ }
+  const convCols = db.pragma('table_info(conversations)');
+  if (!convCols.some(row => row.name === 'user_id')) {
+    db.exec('ALTER TABLE conversations ADD COLUMN user_id INTEGER');
+  }
 
   // Migration: add active column to users if missing
-  try {
-    const cols = db.exec("PRAGMA table_info(users)");
-    const hasActive = cols.length > 0 && cols[0].values.some(row => row[1] === 'active');
-    if (!hasActive) {
-      db.run('ALTER TABLE users ADD COLUMN active INTEGER DEFAULT 1');
-    }
-  } catch { /* column may already exist */ }
+  const userCols = db.pragma('table_info(users)');
+  if (!userCols.some(row => row.name === 'active')) {
+    db.exec('ALTER TABLE users ADD COLUMN active INTEGER DEFAULT 1');
+  }
 
   // Migration: add setup_token columns to users if missing
-  try {
-    const cols3 = db.exec("PRAGMA table_info(users)");
-    const hasSetupToken = cols3.length > 0 && cols3[0].values.some(row => row[1] === 'setup_token');
-    if (!hasSetupToken) {
-      db.run('ALTER TABLE users ADD COLUMN setup_token TEXT');
-      db.run('ALTER TABLE users ADD COLUMN setup_token_expires TEXT');
-    }
-  } catch { /* columns may already exist */ }
+  const userCols2 = db.pragma('table_info(users)');
+  if (!userCols2.some(row => row.name === 'setup_token')) {
+    db.exec('ALTER TABLE users ADD COLUMN setup_token TEXT');
+    db.exec('ALTER TABLE users ADD COLUMN setup_token_expires TEXT');
+  }
 
   // Migration: add sources_used column to messages if missing
-  try {
-    const msgCols = db.exec("PRAGMA table_info(messages)");
-    const hasSourcesUsed = msgCols.length > 0 && msgCols[0].values.some(row => row[1] === 'sources_used');
-    if (!hasSourcesUsed) {
-      db.run('ALTER TABLE messages ADD COLUMN sources_used TEXT DEFAULT NULL');
-    }
-  } catch { /* column may already exist */ }
+  const msgCols = db.pragma('table_info(messages)');
+  if (!msgCols.some(row => row.name === 'sources_used')) {
+    db.exec('ALTER TABLE messages ADD COLUMN sources_used TEXT DEFAULT NULL');
+  }
 
   // Migration: set default roles
-  db.run("UPDATE users SET role = 'admin' WHERE email = 'stefano.yepez@smartgroup.es' AND (role IS NULL OR role = '')");
-  db.run("UPDATE users SET role = 'user' WHERE role IS NULL OR role = ''");
+  db.prepare("UPDATE users SET role = 'admin' WHERE email = 'stefano.yepez@smartgroup.es' AND (role IS NULL OR role = '')").run();
+  db.prepare("UPDATE users SET role = 'user' WHERE role IS NULL OR role = ''").run();
 
   // Seed role_source_defaults if empty
-  const rsdCount = db.exec('SELECT COUNT(*) FROM role_source_defaults');
-  if (rsdCount.length === 0 || rsdCount[0].values[0][0] === 0) {
+  const rsdCount = db.prepare('SELECT COUNT(*) as cnt FROM role_source_defaults').get();
+  if (rsdCount.cnt === 0) {
     const sources = ['bookstack', 'rag', 'fibras', 'crm', 'teki'];
     const roles = ['admin', 'user'];
+    const insertRsd = db.prepare('INSERT OR IGNORE INTO role_source_defaults (role, source_key, enabled) VALUES (?, ?, 1)');
     for (const role of roles) {
       for (const src of sources) {
-        db.run('INSERT OR IGNORE INTO role_source_defaults (role, source_key, enabled) VALUES (?, ?, 1)', [role, src]);
+        insertRsd.run(role, src);
       }
     }
   }
 
   // Seed default admin if no users exist
-  const userCount = db.exec('SELECT COUNT(*) FROM users');
-  if (userCount.length === 0 || userCount[0].values[0][0] === 0) {
+  const userCount = db.prepare('SELECT COUNT(*) as cnt FROM users').get();
+  if (userCount.cnt === 0) {
     const adminEmail = (process.env.ADMIN_EMAIL || 'stefano.yepez@smartgroup.es').toLowerCase();
     const adminPass = process.env.ADMIN_PASSWORD || 'Smart.2018';
     const adminName = process.env.ADMIN_NAME || 'Stefano Yepez';
     const hash = bcrypt.hashSync(adminPass, 10);
-    db.run(
-      'INSERT INTO users (email, name, password_hash, department, sede, role, active) VALUES (?, ?, ?, ?, ?, ?, 1)',
-      [adminEmail, adminName, hash, 'IT', 'Madrid', 'admin']
-    );
+    db.prepare(
+      'INSERT INTO users (email, name, password_hash, department, sede, role, active) VALUES (?, ?, ?, ?, ?, ?, 1)'
+    ).run(adminEmail, adminName, hash, 'IT', 'Madrid', 'admin');
     console.log(`Default admin created: ${adminEmail}`);
   }
 
-  save();
   return db;
-}
-
-function save() {
-  if (!db) return;
-  const data = db.export();
-  fs.writeFileSync(DB_PATH, Buffer.from(data));
 }
 
 function getDb() {
@@ -215,134 +191,85 @@ function getDb() {
 // --- Conversations ---
 
 function createConversation(id, title, userName, department, sede, userId) {
-  const stmt = getDb().prepare(
+  getDb().prepare(
     'INSERT INTO conversations (id, title, user_name, department, sede, user_id) VALUES (?, ?, ?, ?, ?, ?)'
-  );
-  stmt.run([id, title, userName || null, department || null, sede || null, userId || null]);
-  stmt.free();
-  save();
+  ).run(id, title, userName || null, department || null, sede || null, userId || null);
   return { id, title, user_name: userName, department, sede, user_id: userId };
 }
 
 function getConversations() {
-  const results = [];
-  const stmt = getDb().prepare(
+  return getDb().prepare(
     'SELECT id, title, user_name, department, sede, user_id, created_at, updated_at FROM conversations ORDER BY updated_at DESC'
-  );
-  while (stmt.step()) {
-    results.push(stmt.getAsObject());
-  }
-  stmt.free();
-  return results;
+  ).all();
 }
 
 function getConversationsByUser(userId) {
-  const results = [];
-  const stmt = getDb().prepare(
+  return getDb().prepare(
     'SELECT id, title, user_name, department, sede, user_id, created_at, updated_at FROM conversations WHERE user_id = ? ORDER BY updated_at DESC'
-  );
-  stmt.bind([userId]);
-  while (stmt.step()) {
-    results.push(stmt.getAsObject());
-  }
-  stmt.free();
-  return results;
+  ).all(userId);
 }
 
 function getConversation(id) {
-  const stmt = getDb().prepare('SELECT * FROM conversations WHERE id = ?');
-  stmt.bind([id]);
-  let row = null;
-  if (stmt.step()) {
-    row = stmt.getAsObject();
-  }
-  stmt.free();
-  return row;
+  return getDb().prepare('SELECT * FROM conversations WHERE id = ?').get(id) || null;
 }
 
 function updateConversationTitle(id, title) {
-  getDb().run("UPDATE conversations SET title = ?, updated_at = datetime('now') WHERE id = ?", [title, id]);
-  save();
+  getDb().prepare("UPDATE conversations SET title = ?, updated_at = datetime('now') WHERE id = ?").run(title, id);
 }
 
 function deleteConversation(id) {
-  getDb().run('DELETE FROM messages WHERE conversation_id = ?', [id]);
-  getDb().run('DELETE FROM conversations WHERE id = ?', [id]);
-  save();
+  const d = getDb();
+  d.prepare('DELETE FROM messages WHERE conversation_id = ?').run(id);
+  d.prepare('DELETE FROM conversations WHERE id = ?').run(id);
 }
 
 // --- Messages ---
 
 function addMessage(conversationId, role, content, sourcesUsed = null) {
-  const stmt = getDb().prepare(
+  const result = getDb().prepare(
     'INSERT INTO messages (conversation_id, role, content, sources_used) VALUES (?, ?, ?, ?)'
-  );
-  stmt.run([conversationId, role, content, sourcesUsed ? JSON.stringify(sourcesUsed) : null]);
-  stmt.free();
-  // Get inserted ID
-  const idResult = getDb().exec('SELECT last_insert_rowid() as id');
-  const insertedId = idResult[0]?.values[0]?.[0] || null;
-  getDb().run("UPDATE conversations SET updated_at = datetime('now') WHERE id = ?", [conversationId]);
-  save();
-  return insertedId;
+  ).run(conversationId, role, content, sourcesUsed ? JSON.stringify(sourcesUsed) : null);
+  const insertedId = result.lastInsertRowid;
+  getDb().prepare("UPDATE conversations SET updated_at = datetime('now') WHERE id = ?").run(conversationId);
+  return Number(insertedId);
 }
 
 function getMessages(conversationId) {
-  const results = [];
-  const stmt = getDb().prepare(
+  return getDb().prepare(
     'SELECT id, conversation_id, role, content, created_at FROM messages WHERE conversation_id = ? ORDER BY id ASC'
-  );
-  stmt.bind([conversationId]);
-  while (stmt.step()) {
-    results.push(stmt.getAsObject());
-  }
-  stmt.free();
-  return results;
+  ).all(conversationId);
 }
 
 // --- Feedback ---
 
 function upsertFeedback(messageId, conversationId, rating) {
-  // Try update first, then insert
-  getDb().run(
-    'INSERT INTO feedback (message_id, conversation_id, rating) VALUES (?, ?, ?) ON CONFLICT(message_id) DO UPDATE SET rating = ?',
-    [messageId, conversationId, rating, rating]
-  );
-  save();
+  getDb().prepare(
+    'INSERT INTO feedback (message_id, conversation_id, rating) VALUES (?, ?, ?) ON CONFLICT(message_id) DO UPDATE SET rating = ?'
+  ).run(messageId, conversationId, rating, rating);
 }
 
 function getFeedbackByConversation(conversationId) {
-  const results = [];
-  const stmt = getDb().prepare(
+  return getDb().prepare(
     'SELECT message_id, rating FROM feedback WHERE conversation_id = ?'
-  );
-  stmt.bind([conversationId]);
-  while (stmt.step()) {
-    results.push(stmt.getAsObject());
-  }
-  stmt.free();
-  return results;
+  ).all(conversationId);
 }
 
 function getFeedbackStats() {
-  const result = getDb().exec(`
+  const row = getDb().prepare(`
     SELECT
       COUNT(CASE WHEN rating = 1 THEN 1 END) as positive,
       COUNT(CASE WHEN rating = -1 THEN 1 END) as negative,
       COUNT(*) as total
     FROM feedback
-  `);
-  if (result.length === 0) return { positive: 0, negative: 0, total: 0 };
-  const row = result[0].values[0];
-  return { positive: row[0], negative: row[1], total: row[2] };
+  `).get();
+  return row || { positive: 0, negative: 0, total: 0 };
 }
 
 // --- Search (for smart history) ---
 
 function searchMessages(query, excludeConversationId = null, limit = 10) {
-  const results = [];
   const words = query.trim().split(/\s+/).filter(w => w.length > 2);
-  if (words.length === 0) return results;
+  if (words.length === 0) return [];
 
   const likeClause = words.map(() => 'content LIKE ?').join(' OR ');
   const params = words.map(w => `%${w}%`);
@@ -359,83 +286,43 @@ function searchMessages(query, excludeConversationId = null, limit = 10) {
   sql += ' ORDER BY m.created_at DESC LIMIT ?';
   params.push(limit);
 
-  const stmt = getDb().prepare(sql);
-  stmt.bind(params);
-  while (stmt.step()) {
-    results.push(stmt.getAsObject());
-  }
-  stmt.free();
-  return results;
+  return getDb().prepare(sql).all(...params);
 }
 
 // --- Attachments ---
 
 function addAttachment(messageId, conversationId, originalName, storedName, mimeType, size) {
-  const stmt = getDb().prepare(
+  getDb().prepare(
     'INSERT INTO attachments (message_id, conversation_id, original_name, stored_name, mime_type, size) VALUES (?, ?, ?, ?, ?, ?)'
-  );
-  stmt.run([messageId, conversationId, originalName, storedName, mimeType, size]);
-  stmt.free();
-  save();
+  ).run(messageId, conversationId, originalName, storedName, mimeType, size);
 }
 
 function getAttachmentsByMessage(messageId) {
-  const results = [];
-  const stmt = getDb().prepare('SELECT * FROM attachments WHERE message_id = ?');
-  stmt.bind([messageId]);
-  while (stmt.step()) {
-    results.push(stmt.getAsObject());
-  }
-  stmt.free();
-  return results;
+  return getDb().prepare('SELECT * FROM attachments WHERE message_id = ?').all(messageId);
 }
 
 // --- Users ---
 
 function createUser(email, name, passwordHash, department, sede, role) {
-  const stmt = getDb().prepare(
+  const result = getDb().prepare(
     'INSERT INTO users (email, name, password_hash, department, sede, role) VALUES (?, ?, ?, ?, ?, ?)'
-  );
-  stmt.run([email, name, passwordHash, department || null, sede || null, role || null]);
-  stmt.free();
-  const idResult = getDb().exec('SELECT last_insert_rowid() as id');
-  const id = idResult[0]?.values[0]?.[0] || null;
-  save();
+  ).run(email, name, passwordHash, department || null, sede || null, role || null);
+  const id = Number(result.lastInsertRowid);
   return { id, email, name, department, sede, role };
 }
 
 function getUserByEmail(email) {
-  const stmt = getDb().prepare('SELECT * FROM users WHERE email = ?');
-  stmt.bind([email]);
-  let row = null;
-  if (stmt.step()) {
-    row = stmt.getAsObject();
-  }
-  stmt.free();
-  return row;
+  return getDb().prepare('SELECT * FROM users WHERE email = ?').get(email) || null;
 }
 
 function getUserById(id) {
-  const stmt = getDb().prepare('SELECT id, email, name, department, sede, role, active, created_at FROM users WHERE id = ?');
-  stmt.bind([id]);
-  let row = null;
-  if (stmt.step()) {
-    row = stmt.getAsObject();
-  }
-  stmt.free();
-  return row;
+  return getDb().prepare('SELECT id, email, name, department, sede, role, active, created_at FROM users WHERE id = ?').get(id) || null;
 }
 
 // --- Admin: User Management ---
 
 function getAllUsers() {
-  const results = [];
-  const stmt = getDb().prepare('SELECT id, email, name, department, sede, role, active, created_at FROM users ORDER BY id ASC');
-  while (stmt.step()) {
-    results.push(stmt.getAsObject());
-  }
-  stmt.free();
-  return results;
+  return getDb().prepare('SELECT id, email, name, department, sede, role, active, created_at FROM users ORDER BY id ASC').all();
 }
 
 function updateUser(id, fields) {
@@ -450,71 +337,48 @@ function updateUser(id, fields) {
   }
   if (sets.length === 0) return false;
   params.push(id);
-  getDb().run(`UPDATE users SET ${sets.join(', ')} WHERE id = ?`, params);
-  save();
+  getDb().prepare(`UPDATE users SET ${sets.join(', ')} WHERE id = ?`).run(...params);
   return true;
 }
 
 function updateUserPassword(id, hash) {
-  getDb().run('UPDATE users SET password_hash = ? WHERE id = ?', [hash, id]);
-  save();
+  getDb().prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hash, id);
 }
 
 function createUserWithToken(email, name, department, sede, role) {
   const token = crypto.randomUUID();
   const expires = new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString();
-  const stmt = getDb().prepare(
+  const result = getDb().prepare(
     'INSERT INTO users (email, name, password_hash, department, sede, role, setup_token, setup_token_expires) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
-  );
-  stmt.run([email, name, '', department || null, sede || null, role || 'user', token, expires]);
-  stmt.free();
-  const idResult = getDb().exec('SELECT last_insert_rowid() as id');
-  const id = idResult[0]?.values[0]?.[0] || null;
-  save();
+  ).run(email, name, '', department || null, sede || null, role || 'user', token, expires);
+  const id = Number(result.lastInsertRowid);
   return { user: { id, email, name, department, sede, role: role || 'user' }, token };
 }
 
 function getUserBySetupToken(token) {
-  const stmt = getDb().prepare('SELECT id, email, name, department, sede, role, setup_token_expires FROM users WHERE setup_token = ?');
-  stmt.bind([token]);
-  let row = null;
-  if (stmt.step()) {
-    row = stmt.getAsObject();
-  }
-  stmt.free();
+  const row = getDb().prepare('SELECT id, email, name, department, sede, role, setup_token_expires FROM users WHERE setup_token = ?').get(token);
   if (!row) return null;
   if (new Date(row.setup_token_expires) < new Date()) return null;
   return row;
 }
 
 function consumeSetupToken(userId, passwordHash) {
-  getDb().run('UPDATE users SET password_hash = ?, setup_token = NULL, setup_token_expires = NULL WHERE id = ?', [passwordHash, userId]);
-  save();
+  getDb().prepare('UPDATE users SET password_hash = ?, setup_token = NULL, setup_token_expires = NULL WHERE id = ?').run(passwordHash, userId);
 }
 
 function deleteUser(id) {
   const d = getDb();
-  // Delete related data
-  d.run('DELETE FROM user_preferences WHERE user_id = ?', [id]);
-  d.run('DELETE FROM user_source_overrides WHERE user_id = ?', [id]);
-  // Delete messages from user's conversations, then the conversations
-  d.run('DELETE FROM messages WHERE conversation_id IN (SELECT id FROM conversations WHERE user_id = ?)', [id]);
-  d.run('DELETE FROM conversations WHERE user_id = ?', [id]);
-  // Delete user record
-  d.run('DELETE FROM users WHERE id = ?', [id]);
-  save();
+  d.prepare('DELETE FROM user_preferences WHERE user_id = ?').run(id);
+  d.prepare('DELETE FROM user_source_overrides WHERE user_id = ?').run(id);
+  d.prepare('DELETE FROM messages WHERE conversation_id IN (SELECT id FROM conversations WHERE user_id = ?)').run(id);
+  d.prepare('DELETE FROM conversations WHERE user_id = ?').run(id);
+  d.prepare('DELETE FROM users WHERE id = ?').run(id);
 }
 
 // --- Admin: User Preferences ---
 
 function getUserPreferences(userId) {
-  const stmt = getDb().prepare('SELECT * FROM user_preferences WHERE user_id = ?');
-  stmt.bind([userId]);
-  let row = null;
-  if (stmt.step()) {
-    row = stmt.getAsObject();
-  }
-  stmt.free();
+  const row = getDb().prepare('SELECT * FROM user_preferences WHERE user_id = ?').get(userId);
   return row || { user_id: userId, avatar_path: null, bio: null, preferred_ai_provider: 'claude', preferred_language: 'es', preferred_theme: 'dark' };
 }
 
@@ -527,57 +391,36 @@ function upsertUserPreferences(userId, fields) {
     preferred_language: fields.preferred_language !== undefined ? fields.preferred_language : current.preferred_language,
     preferred_theme: fields.preferred_theme !== undefined ? fields.preferred_theme : current.preferred_theme
   };
-  getDb().run(
-    'INSERT OR REPLACE INTO user_preferences (user_id, avatar_path, bio, preferred_ai_provider, preferred_language, preferred_theme) VALUES (?, ?, ?, ?, ?, ?)',
-    [userId, merged.avatar_path, merged.bio, merged.preferred_ai_provider, merged.preferred_language, merged.preferred_theme]
-  );
-  save();
+  getDb().prepare(
+    'INSERT OR REPLACE INTO user_preferences (user_id, avatar_path, bio, preferred_ai_provider, preferred_language, preferred_theme) VALUES (?, ?, ?, ?, ?, ?)'
+  ).run(userId, merged.avatar_path, merged.bio, merged.preferred_ai_provider, merged.preferred_language, merged.preferred_theme);
   return { user_id: userId, ...merged };
 }
 
 // --- Admin: Source Access ---
 
 function getRoleSourceDefaults(role) {
-  const results = [];
-  const stmt = getDb().prepare('SELECT source_key, enabled FROM role_source_defaults WHERE role = ?');
-  stmt.bind([role]);
-  while (stmt.step()) {
-    results.push(stmt.getAsObject());
-  }
-  stmt.free();
-  return results;
+  return getDb().prepare('SELECT source_key, enabled FROM role_source_defaults WHERE role = ?').all(role);
 }
 
 function setRoleSourceDefault(role, key, enabled) {
-  getDb().run(
-    'INSERT OR REPLACE INTO role_source_defaults (role, source_key, enabled) VALUES (?, ?, ?)',
-    [role, key, enabled ? 1 : 0]
-  );
-  save();
+  getDb().prepare(
+    'INSERT OR REPLACE INTO role_source_defaults (role, source_key, enabled) VALUES (?, ?, ?)'
+  ).run(role, key, enabled ? 1 : 0);
 }
 
 function getUserSourceOverrides(userId) {
-  const results = [];
-  const stmt = getDb().prepare('SELECT source_key, enabled FROM user_source_overrides WHERE user_id = ?');
-  stmt.bind([userId]);
-  while (stmt.step()) {
-    results.push(stmt.getAsObject());
-  }
-  stmt.free();
-  return results;
+  return getDb().prepare('SELECT source_key, enabled FROM user_source_overrides WHERE user_id = ?').all(userId);
 }
 
 function setUserSourceOverride(userId, key, enabled) {
-  getDb().run(
-    'INSERT OR REPLACE INTO user_source_overrides (user_id, source_key, enabled) VALUES (?, ?, ?)',
-    [userId, key, enabled ? 1 : 0]
-  );
-  save();
+  getDb().prepare(
+    'INSERT OR REPLACE INTO user_source_overrides (user_id, source_key, enabled) VALUES (?, ?, ?)'
+  ).run(userId, key, enabled ? 1 : 0);
 }
 
 function deleteUserSourceOverride(userId, key) {
-  getDb().run('DELETE FROM user_source_overrides WHERE user_id = ? AND source_key = ?', [userId, key]);
-  save();
+  getDb().prepare('DELETE FROM user_source_overrides WHERE user_id = ? AND source_key = ?').run(userId, key);
 }
 
 function getEffectiveSourceAccess(userId, role) {
@@ -591,7 +434,6 @@ function getEffectiveSourceAccess(userId, role) {
   for (const d of defaults) {
     result[d.source_key] = overrideMap[d.source_key] !== undefined ? !!overrideMap[d.source_key] : !!d.enabled;
   }
-  // Ensure all 4 sources have a value
   for (const key of ['bookstack', 'rag', 'fibras', 'crm', 'teki']) {
     if (result[key] === undefined) {
       result[key] = overrideMap[key] !== undefined ? !!overrideMap[key] : true;
@@ -603,8 +445,7 @@ function getEffectiveSourceAccess(userId, role) {
 // --- Admin: User Metrics ---
 
 function getUserMetrics() {
-  const results = [];
-  const stmt = getDb().prepare(`
+  return getDb().prepare(`
     SELECT
       u.id as user_id,
       u.name,
@@ -621,26 +462,26 @@ function getUserMetrics() {
     WHERE u.active = 1
     GROUP BY u.id
     ORDER BY last_activity DESC
-  `);
-  while (stmt.step()) {
-    results.push(stmt.getAsObject());
-  }
-  stmt.free();
-  return results;
+  `).all();
+}
+
+// --- Admin: Counts ---
+
+function getConversationCount() {
+  return getDb().prepare('SELECT COUNT(*) as cnt FROM conversations').get().cnt;
+}
+
+function getMessageCount() {
+  return getDb().prepare('SELECT COUNT(*) as cnt FROM messages').get().cnt;
 }
 
 // --- Knowledge Base ---
 
 function addKnowledgeArticle(title, problem, solution, keywords, sourceTickets, createdBy) {
-  const stmt = getDb().prepare(
+  const result = getDb().prepare(
     'INSERT INTO knowledge_base (title, problem, solution, keywords, source_tickets, created_by) VALUES (?, ?, ?, ?, ?, ?)'
-  );
-  stmt.run([title, problem, solution, keywords, sourceTickets || '', createdBy || 'ARIA']);
-  stmt.free();
-  const idResult = getDb().exec('SELECT last_insert_rowid() as id');
-  const id = idResult[0]?.values[0]?.[0] || null;
-  save();
-  return id;
+  ).run(title, problem, solution, keywords, sourceTickets || '', createdBy || 'ARIA');
+  return Number(result.lastInsertRowid);
 }
 
 function searchKnowledgeBase(query, limit = 5) {
@@ -648,36 +489,66 @@ function searchKnowledgeBase(query, limit = 5) {
   const terms = query.toLowerCase().split(/\s+/).filter(t => t.length > 2 && !stopwords.includes(t));
   if (terms.length === 0) return [];
 
+  const allArticles = getDb().prepare('SELECT id, title, problem, solution, keywords, source_tickets, times_used, created_by, created_at FROM knowledge_base').all();
   const results = [];
-  const stmt = getDb().prepare('SELECT id, title, problem, solution, keywords, source_tickets, times_used, created_by, created_at FROM knowledge_base');
-  while (stmt.step()) {
-    const row = stmt.getAsObject();
+
+  for (const row of allArticles) {
     const text = (row.title + ' ' + row.problem + ' ' + row.solution + ' ' + row.keywords).toLowerCase();
     const matches = terms.filter(t => text.includes(t)).length;
     if (matches > 0) {
       results.push({ ...row, score: matches });
     }
   }
-  stmt.free();
 
   results.sort((a, b) => b.score - a.score || b.times_used - a.times_used);
   return results.slice(0, limit);
 }
 
 function incrementKnowledgeUsage(id) {
-  getDb().run("UPDATE knowledge_base SET times_used = times_used + 1, updated_at = datetime('now') WHERE id = ?", [id]);
-  save();
+  getDb().prepare("UPDATE knowledge_base SET times_used = times_used + 1, updated_at = datetime('now') WHERE id = ?").run(id);
 }
 
 function getKnowledgeStats() {
-  const result = getDb().exec('SELECT COUNT(*) as total, SUM(times_used) as total_uses FROM knowledge_base');
-  if (result.length === 0) return { total: 0, totalUses: 0 };
-  const row = result[0].values[0];
-  return { total: row[0] || 0, totalUses: row[1] || 0 };
+  const row = getDb().prepare('SELECT COUNT(*) as total, COALESCE(SUM(times_used), 0) as total_uses FROM knowledge_base').get();
+  return { total: row.total || 0, totalUses: row.total_uses || 0 };
+}
+
+// --- Knowledge Base Admin ---
+
+function getAllKnowledgeArticles() {
+  return getDb().prepare(
+    'SELECT id, title, keywords, source_tickets, times_used, created_by, created_at, updated_at FROM knowledge_base ORDER BY updated_at DESC'
+  ).all();
+}
+
+function getKnowledgeArticle(id) {
+  return getDb().prepare('SELECT * FROM knowledge_base WHERE id = ?').get(id) || null;
+}
+
+function updateKnowledgeArticle(id, fields) {
+  const allowed = ['title', 'problem', 'solution', 'keywords', 'source_tickets'];
+  const sets = [];
+  const params = [];
+  for (const key of allowed) {
+    if (fields[key] !== undefined) {
+      sets.push(`${key} = ?`);
+      params.push(fields[key]);
+    }
+  }
+  if (sets.length === 0) return false;
+  sets.push("updated_at = datetime('now')");
+  params.push(id);
+  getDb().prepare(`UPDATE knowledge_base SET ${sets.join(', ')} WHERE id = ?`).run(...params);
+  return true;
+}
+
+function deleteKnowledgeArticle(id) {
+  getDb().prepare('DELETE FROM knowledge_base WHERE id = ?').run(id);
 }
 
 module.exports = {
   initDb,
+  getDb,
   createConversation,
   getConversations,
   getConversationsByUser,
@@ -711,8 +582,14 @@ module.exports = {
   getEffectiveSourceAccess,
   deleteUser,
   getUserMetrics,
+  getConversationCount,
+  getMessageCount,
   addKnowledgeArticle,
   searchKnowledgeBase,
   incrementKnowledgeUsage,
-  getKnowledgeStats
+  getKnowledgeStats,
+  getAllKnowledgeArticles,
+  getKnowledgeArticle,
+  updateKnowledgeArticle,
+  deleteKnowledgeArticle
 };
