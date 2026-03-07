@@ -23,6 +23,47 @@ const CREDENTIAL_PATTERNS = [
   /pass (del|de la|de los)/i
 ];
 
+// Stop words to strip from search queries
+const STOP_WORDS = new Set([
+  'dime', 'dame', 'cual', 'cuál', 'que', 'qué', 'es', 'la', 'el', 'los', 'las', 'de', 'del',
+  'un', 'una', 'unos', 'unas', 'para', 'por', 'porfa', 'porfavor', 'por favor', 'me',
+  'contraseña', 'contrasena', 'password', 'pass', 'clave', 'credencial', 'credenciales',
+  'acceso', 'usuario', 'login', 'datos', 'como', 'cómo', 'entro', 'accedo', 'conecto',
+  'necesito', 'quiero', 'puedes', 'darme', 'decirme', 'saber', 'ver', 'a', 'al', 'y',
+  'con', 'en', 'te', 'se', 'si', 'no', 'hay', 'tiene', 'tengo', 'favor'
+]);
+
+/**
+ * Extract meaningful search keywords from a user message.
+ * Strips credential-related words and stop words to get the actual service name.
+ */
+function extractSearchKeywords(message) {
+  const words = message.toLowerCase()
+    .replace(/[¿?¡!.,;:()]/g, '')
+    .split(/\s+/)
+    .filter(w => w.length > 1 && !STOP_WORDS.has(w));
+  return words;
+}
+
+/**
+ * Score how well a resource matches search keywords.
+ * Returns 0 if no match, higher = better match.
+ */
+function scoreResource(resource, keywords) {
+  const haystack = [
+    resource.name || '',
+    resource.username || '',
+    resource.uri || '',
+    resource.description || ''
+  ].join(' ').toLowerCase();
+
+  let score = 0;
+  for (const kw of keywords) {
+    if (haystack.includes(kw)) score += 1;
+  }
+  return score;
+}
+
 // In-memory state
 let privateKey = null;
 let serverPublicKey = null;
@@ -211,23 +252,46 @@ async function decryptSecret(armoredSecret) {
 
 /**
  * Search resources in Passbolt by query. Returns decrypted results.
+ * Extracts keywords, searches via API, then filters + ranks client-side.
  * Uses cache with 5min TTL.
  */
 async function searchResources(query) {
-  const cacheKey = query.toLowerCase().trim();
+  const keywords = extractSearchKeywords(query);
+  if (keywords.length === 0) return [];
+
+  // Use the most specific keyword for the API search
+  const apiQuery = keywords.join(' ');
+  const cacheKey = apiQuery.toLowerCase();
   const cached = searchCache.get(cacheKey);
   if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
     return cached.results;
   }
 
-  const data = await authenticatedFetch(
-    `/resources.json?filter[search]=${encodeURIComponent(query)}&contain[secret]=1`
-  );
+  // Try each keyword individually and collect unique resources
+  const allResources = new Map();
+  for (const kw of keywords) {
+    const data = await authenticatedFetch(
+      `/resources.json?filter[search]=${encodeURIComponent(kw)}&contain[secret]=1`
+    );
+    for (const r of (data.body || [])) {
+      if (!allResources.has(r.id)) allResources.set(r.id, r);
+    }
+  }
 
-  const resources = data.body || [];
+  // Score and filter: only keep resources that actually match at least one keyword
+  const scored = [];
+  for (const r of allResources.values()) {
+    const score = scoreResource(r, keywords);
+    if (score > 0) scored.push({ resource: r, score });
+  }
+
+  // Sort by score descending, limit to top 10
+  scored.sort((a, b) => b.score - a.score);
+  const top = scored.slice(0, 10);
+
+  // Decrypt only the matching resources
   const results = [];
-
-  for (const r of resources) {
+  for (const { resource: r } of top) {
     try {
       const secretData = r.secrets && r.secrets[0]
         ? await decryptSecret(r.secrets[0].data)
