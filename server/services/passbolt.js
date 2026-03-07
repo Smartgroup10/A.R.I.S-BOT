@@ -77,7 +77,8 @@ const searchCache = new Map();
 const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
 function isConfigured() {
-  return !!(PASSBOLT_URL && PASSBOLT_USER_ID && PASSBOLT_PASSPHRASE && fs.existsSync(PRIVATE_KEY_PATH));
+  const hasKey = process.env.PASSBOLT_PRIVATE_KEY || fs.existsSync(PRIVATE_KEY_PATH);
+  return !!(PASSBOLT_URL && PASSBOLT_USER_ID && PASSBOLT_PASSPHRASE && hasKey);
 }
 
 function mightNeedCredentials(message) {
@@ -93,7 +94,8 @@ async function init() {
     return;
   }
   try {
-    const armoredKey = fs.readFileSync(PRIVATE_KEY_PATH, 'utf-8');
+    // Read private key from env var (Coolify) or file (local dev)
+    const armoredKey = process.env.PASSBOLT_PRIVATE_KEY || fs.readFileSync(PRIVATE_KEY_PATH, 'utf-8');
     const rawKey = await openpgp.readPrivateKey({ armoredKey });
     privateKey = await openpgp.decryptKey({ privateKey: rawKey, passphrase: PASSBOLT_PASSPHRASE });
 

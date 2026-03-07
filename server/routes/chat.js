@@ -281,8 +281,12 @@ router.post('/', async (req, res) => {
       );
 
       // Passbolt credentials (replaces local vault)
-      searches.push(sourceAccess.vault && passbolt.isConfigured() && passbolt.mightNeedCredentials(msg)
-        ? withTimeout(passbolt.getCredentialsContext(msg, userContext.department, userContext.role).catch(() => null), SEARCH_TIMEOUT)
+      const _vaultAccess = sourceAccess.vault;
+      const _pbConfigured = passbolt.isConfigured();
+      const _pbNeedsCreds = passbolt.mightNeedCredentials(msg);
+      console.log(`[Passbolt debug] vault access=${_vaultAccess}, configured=${_pbConfigured}, needsCreds=${_pbNeedsCreds}, msg="${msg.substring(0, 60)}"`);
+      searches.push(_vaultAccess && _pbConfigured && _pbNeedsCreds
+        ? withTimeout(passbolt.getCredentialsContext(msg, userContext.department, userContext.role).catch(e => { console.error('[Passbolt error]', e.message); return null; }), SEARCH_TIMEOUT)
         : Promise.resolve(null));
     } else {
       for (let i = 0; i < 11; i++) searches.push(Promise.resolve(null));
