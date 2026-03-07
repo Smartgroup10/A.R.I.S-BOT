@@ -13,7 +13,7 @@ const email = require('../services/email');
 const teki = require('../services/teki');
 const db = require('../db');
 const knowledge = require('../services/knowledge');
-const vault = require('../services/vault');
+const passbolt = require('../services/passbolt');
 
 const router = express.Router();
 
@@ -280,9 +280,9 @@ router.post('/', async (req, res) => {
         withTimeout(Promise.resolve().then(() => knowledge.getKnowledgeContext(msg)).catch(() => null), SEARCH_TIMEOUT)
       );
 
-      // Vault credentials
-      searches.push(sourceAccess.vault && vault.isConfigured() && vault.mightNeedCredentials(msg)
-        ? withTimeout(Promise.resolve().then(() => vault.getCredentialsContext(msg, userContext.department, userContext.role)).catch(() => null), SEARCH_TIMEOUT)
+      // Passbolt credentials (replaces local vault)
+      searches.push(sourceAccess.vault && passbolt.isConfigured() && passbolt.mightNeedCredentials(msg)
+        ? withTimeout(passbolt.getCredentialsContext(msg, userContext.department, userContext.role).catch(() => null), SEARCH_TIMEOUT)
         : Promise.resolve(null));
     } else {
       for (let i = 0; i < 11; i++) searches.push(Promise.resolve(null));
