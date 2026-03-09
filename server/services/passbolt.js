@@ -86,6 +86,29 @@ function mightNeedCredentials(message) {
 }
 
 /**
+ * Repair a PGP armored key where newlines were stripped (e.g. by Coolify).
+ * Reconstructs proper armored format with header, base64 lines, and footer.
+ */
+function repairArmoredKey(key) {
+  const header = '-----BEGIN PGP PRIVATE KEY BLOCK-----';
+  const footer = '-----END PGP PRIVATE KEY BLOCK-----';
+
+  // Extract the base64 body between header and footer
+  let body = key
+    .replace(header, '')
+    .replace(footer, '')
+    .replace(/\s+/g, '');
+
+  // Split base64 into 76-char lines (standard PGP armored format)
+  const lines = [];
+  for (let i = 0; i < body.length; i += 76) {
+    lines.push(body.substring(i, i + 76));
+  }
+
+  return `${header}\n\n${lines.join('\n')}\n${footer}\n`;
+}
+
+/**
  * Initialize: read + decrypt private key, fetch server public key.
  */
 async function init() {
@@ -99,6 +122,10 @@ async function init() {
     // Fix escaped newlines from env vars (Coolify/Docker may store as literal \n)
     if (armoredKey.includes('\\n')) {
       armoredKey = armoredKey.replace(/\\n/g, '\n');
+    }
+    // Fix completely stripped newlines (Coolify may replace \n with spaces)
+    if (!armoredKey.includes('\n')) {
+      armoredKey = repairArmoredKey(armoredKey);
     }
     const rawKey = await openpgp.readPrivateKey({ armoredKey });
     privateKey = await openpgp.decryptKey({ privateKey: rawKey, passphrase: PASSBOLT_PASSPHRASE });
