@@ -383,4 +383,16 @@ router.get('/passbolt/status', async (req, res) => {
   }
 });
 
+// GET /api/admin/audit — audit log
+router.get('/audit', (req, res) => {
+  try {
+    const limit = Math.min(parseInt(req.query.limit) || 200, 1000);
+    const entries = db.getAuditLog(limit);
+    res.json(entries);
+  } catch (err) {
+    console.error('Admin audit error:', err);
+    res.status(500).json({ error: 'Error obteniendo audit log' });
+  }
+});
+
 module.exports = router;

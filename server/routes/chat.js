@@ -294,6 +294,11 @@ router.post('/', async (req, res) => {
 
     const [bookstackCtx, ragCtx, fibrasCtx, crmCtx, resolutionCtx, directTicketCtx, clientCtx, desviosCtx, tekiFibrasCtx, knowledgeCtx, vaultCtx] = await Promise.all(searches);
 
+    // Audit: log credential queries
+    if (vaultCtx) {
+      try { db.addAuditLog(req.user.id, 'credentials_query', msg.substring(0, 200)); } catch {}
+    }
+
     // Track which sources were used
     const usedSources = [];
     if (bookstackCtx) usedSources.push('bookstack');
@@ -533,6 +538,11 @@ router.post('/', async (req, res) => {
 
           try {
             const result = await executeTool(toolBlock.name, toolBlock.input);
+            // Audit: log sensitive tool executions
+            const AUDITED_TOOLS = ['create_crm_ticket', 'close_crm_ticket', 'reply_ticket_email', 'add_seguimiento_crm'];
+            if (AUDITED_TOOLS.includes(toolBlock.name)) {
+              try { db.addAuditLog(req.user.id, 'tool_' + toolBlock.name, JSON.stringify(toolBlock.input).substring(0, 500)); } catch {}
+            }
             safeWrite(`data: ${JSON.stringify({ type: 'tool_result', name: toolBlock.name, id: toolBlock.id, result })}\n\n`);
             toolResults.push({
               type: 'tool_result',

@@ -10,6 +10,7 @@ const AdminUserEdit = () => import('../views/admin/AdminUserEdit.vue')
 const AdminSources = () => import('../views/admin/AdminSources.vue')
 const AdminKnowledge = () => import('../views/admin/AdminKnowledge.vue')
 const AdminVault = () => import('../views/admin/AdminVault.vue')
+const AdminAudit = () => import('../views/admin/AdminAudit.vue')
 const SetupPassword = () => import('../views/SetupPassword.vue')
 
 const routes = [
@@ -40,7 +41,8 @@ const routes = [
       { path: 'users/:id', name: 'admin-user-edit', component: AdminUserEdit, props: true },
       { path: 'sources', name: 'admin-sources', component: AdminSources },
       { path: 'knowledge', name: 'admin-knowledge', component: AdminKnowledge },
-      { path: 'vault', name: 'admin-vault', component: AdminVault }
+      { path: 'vault', name: 'admin-vault', component: AdminVault },
+      { path: 'audit', name: 'admin-audit', component: AdminAudit }
     ]
   }
 ]

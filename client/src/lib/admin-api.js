@@ -163,6 +163,14 @@ export async function deleteUserSourceOverride(userId, sourceKey) {
   return res.json()
 }
 
+// --- Audit Log ---
+
+export async function fetchAuditLog(limit = 200) {
+  const res = await fetch(`${API_BASE}/audit?limit=${limit}`, { headers: authHeaders() })
+  handleUnauthorized(res)
+  return res.json()
+}
+
 // --- Passbolt Status ---
 
 export async function fetchPassboltStatus() {

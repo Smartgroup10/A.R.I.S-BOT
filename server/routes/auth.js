@@ -75,7 +75,7 @@ router.post('/register', async (req, res) => {
     const passwordHash = await bcrypt.hash(password, 10);
     const user = db.createUser(email.toLowerCase(), name.trim(), passwordHash, department, sede, 'user');
 
-    const token = jwt.sign({ userId: user.id }, process.env.JWT_SECRET, { expiresIn: '7d' });
+    const token = jwt.sign({ userId: user.id }, process.env.JWT_SECRET, { expiresIn: '24h' });
 
     res.status(201).json({
       token,
@@ -110,7 +110,7 @@ router.post('/login', async (req, res) => {
       return res.status(403).json({ error: 'Cuenta desactivada. Contacta al administrador.' });
     }
 
-    const token = jwt.sign({ userId: user.id }, process.env.JWT_SECRET, { expiresIn: '7d' });
+    const token = jwt.sign({ userId: user.id }, process.env.JWT_SECRET, { expiresIn: '24h' });
 
     res.json({
       token,

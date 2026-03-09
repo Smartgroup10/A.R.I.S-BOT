@@ -11,6 +11,7 @@ export const useAdminStore = defineStore('admin', () => {
   const knowledgeStats = ref({ total: 0, totalUses: 0 })
   const apiUsage = ref(null)
   const passboltStatus = ref(null)
+  const auditLog = ref([])
   const loading = ref(false)
 
   async function loadStats() {
@@ -109,6 +110,14 @@ export const useAdminStore = defineStore('admin', () => {
     knowledgeStats.value.total = Math.max(0, knowledgeStats.value.total - 1)
   }
 
+  async function loadAuditLog() {
+    try {
+      auditLog.value = await adminApi.fetchAuditLog()
+    } catch (err) {
+      console.error('Error loading audit log:', err)
+    }
+  }
+
   async function loadPassboltStatus() {
     try {
       passboltStatus.value = await adminApi.fetchPassboltStatus()
@@ -141,6 +150,8 @@ export const useAdminStore = defineStore('admin', () => {
     loadKnowledgeArticles,
     updateKnowledgeArticle,
     deleteKnowledgeArticle,
+    auditLog,
+    loadAuditLog,
     passboltStatus,
     loadPassboltStatus
   }

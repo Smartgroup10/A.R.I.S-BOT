@@ -126,6 +126,16 @@ function initDb() {
   `);
 
   db.exec(`
+    CREATE TABLE IF NOT EXISTS audit_log (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER,
+      action TEXT NOT NULL,
+      detail TEXT DEFAULT '',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
+  db.exec(`
     CREATE TABLE IF NOT EXISTS api_usage (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       provider TEXT NOT NULL,
@@ -728,6 +738,24 @@ function getApiUsageStats() {
   };
 }
 
+// --- Audit Log ---
+
+function addAuditLog(userId, action, detail) {
+  getDb().prepare(
+    'INSERT INTO audit_log (user_id, action, detail) VALUES (?, ?, ?)'
+  ).run(userId || null, action, detail || '');
+}
+
+function getAuditLog(limit = 200) {
+  return getDb().prepare(`
+    SELECT a.id, a.user_id, u.name as user_name, u.email as user_email, a.action, a.detail, a.created_at
+    FROM audit_log a
+    LEFT JOIN users u ON a.user_id = u.id
+    ORDER BY a.id DESC
+    LIMIT ?
+  `).all(limit);
+}
+
 module.exports = {
   initDb,
   getDb,
@@ -782,5 +810,7 @@ module.exports = {
   searchVaultCredentials,
   addApiUsage,
   getApiUsageStats,
-  COST_PER_MILLION
+  COST_PER_MILLION,
+  addAuditLog,
+  getAuditLog
 };
