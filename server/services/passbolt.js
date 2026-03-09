@@ -77,7 +77,7 @@ const searchCache = new Map();
 const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
 function isConfigured() {
-  const hasKey = process.env.PASSBOLT_PRIVATE_KEY || fs.existsSync(PRIVATE_KEY_PATH);
+  const hasKey = process.env.PASSBOLT_PRIVATE_KEY_B64 || process.env.PASSBOLT_PRIVATE_KEY || fs.existsSync(PRIVATE_KEY_PATH);
   return !!(PASSBOLT_URL && PASSBOLT_USER_ID && PASSBOLT_PASSPHRASE && hasKey);
 }
 
@@ -117,15 +117,18 @@ async function init() {
     return;
   }
   try {
-    // Read private key from env var (Coolify) or file (local dev)
-    let armoredKey = process.env.PASSBOLT_PRIVATE_KEY || fs.readFileSync(PRIVATE_KEY_PATH, 'utf-8');
-    // Fix escaped newlines from env vars (Coolify/Docker may store as literal \n)
-    if (armoredKey.includes('\\n')) {
-      armoredKey = armoredKey.replace(/\\n/g, '\n');
-    }
-    // Fix completely stripped newlines (Coolify may replace \n with spaces)
-    if (!armoredKey.includes('\n')) {
-      armoredKey = repairArmoredKey(armoredKey);
+    // Read private key: PASSBOLT_PRIVATE_KEY_B64 (base64, safest for Coolify)
+    //                    PASSBOLT_PRIVATE_KEY (raw armored text)
+    //                    or file (local dev)
+    let armoredKey;
+    if (process.env.PASSBOLT_PRIVATE_KEY_B64) {
+      armoredKey = Buffer.from(process.env.PASSBOLT_PRIVATE_KEY_B64, 'base64').toString('utf-8');
+    } else if (process.env.PASSBOLT_PRIVATE_KEY) {
+      armoredKey = process.env.PASSBOLT_PRIVATE_KEY;
+      if (armoredKey.includes('\\n')) armoredKey = armoredKey.replace(/\\n/g, '\n');
+      if (!armoredKey.includes('\n')) armoredKey = repairArmoredKey(armoredKey);
+    } else {
+      armoredKey = fs.readFileSync(PRIVATE_KEY_PATH, 'utf-8');
     }
     const rawKey = await openpgp.readPrivateKey({ armoredKey });
     privateKey = await openpgp.decryptKey({ privateKey: rawKey, passphrase: PASSBOLT_PASSPHRASE });
