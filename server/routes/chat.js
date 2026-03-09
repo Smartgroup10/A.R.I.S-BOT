@@ -474,15 +474,16 @@ router.post('/', async (req, res) => {
           razonSocial: input.razon_social,
           calle: input.calle,
           provincia: input.provincia,
+          municipio: input.municipio || '',
           cargo: input.cargo,
           iban: input.iban,
-          lineaspot: input.lineaspot || 0,
-          idve: input.idve || 0,
-          codPostal: input.cod_postal || '',
-          poblacion: input.poblacion || '',
+          contacto: input.contacto || '',
           telefono: input.telefono || '',
           email: input.email || '',
-          contacto: input.contacto || ''
+          lineaspot: input.lineaspot || 1,
+          idve: input.distribuidor || '',
+          codPostal: input.cod_postal || '',
+          poblacion: input.poblacion || ''
         });
       }
       return { error: `Unknown tool: ${name}` };

@@ -567,7 +567,7 @@ Tienes acceso al **Vault de Credenciales** interno, un almacén seguro de contra
 
 Tienes acceso a la herramienta **create_crm_client** que permite dar de alta nuevos clientes en el CRM de ALPHA/JD Systems.
 
-### Datos obligatorios:
+### Datos obligatorios (TODOS requeridos por el CRM):
 | Campo | Descripción | Ejemplo |
 |-------|------------|---------|
 | nombre | Nombre comercial | "Acme Corp" |
@@ -575,34 +575,35 @@ Tienes acceso a la herramienta **create_crm_client** que permite dar de alta nue
 | tipo_nif | Tipo de documento | CIF, NIF, NIE, Pasaporte |
 | razon_social | Razón social completa | "ACME CORPORATION SL" |
 | calle | Dirección completa | "Calle Mayor 10, 1ºA" |
-| provincia | Provincia | "Madrid" |
+| provincia | Provincia EN MAYÚSCULAS | "MADRID", "BARCELONA" |
+| municipio | Municipio/localidad | "Madrid", "Alcobendas" |
 | cargo | Cargo del contacto | "Administrador" |
-| iban | IBAN completo | "ES7620770024003102575766" |
+| iban | IBAN completo sin espacios | "ES9121000418450200051332" |
+| contacto | Nombre persona contacto | "Juan García" |
+| telefono | Teléfono de contacto | "912345678" |
+| email | Email de contacto | "contacto@empresa.com" |
 
 ### Datos opcionales:
 | Campo | Descripción |
 |-------|------------|
-| lineaspot | Nº líneas spot (0 por defecto) |
-| idve | ID vendedor (0 si no se conoce) |
+| lineaspot | Nº líneas potenciales (mínimo 1, por defecto 1) |
+| distribuidor | "SMARTGROUP" (defecto), "GO RED" o "ASOCIATEL" |
 | cod_postal | Código postal |
 | poblacion | Población/Ciudad |
-| telefono | Teléfono de contacto |
-| email | Email de contacto |
-| contacto | Nombre persona de contacto |
 
 ### Proceso OBLIGATORIO:
-1. **Recopila TODOS los datos obligatorios** del usuario — si falta alguno, pídeselo
+1. **Recopila TODOS los 12 datos obligatorios** del usuario — si falta alguno, pídeselo
 2. **Valida el formato** del CIF/NIF e IBAN antes de enviar:
    - CIF: letra + 7 dígitos + letra/dígito (ej: B12345678)
    - NIF: 8 dígitos + letra (ej: 12345678A)
-   - NIE: X/Y/Z + 7 dígitos + letra (ej: X1234567A)
-   - IBAN España: ES + 2 dígitos de control + 20 dígitos (24 caracteres total)
+   - IBAN España: ES + 22 dígitos, sin espacios (24 caracteres total)
+   - Provincia: debe ser una provincia española en mayúsculas (MADRID, BARCELONA, etc.)
 3. **Muestra un resumen completo** con todos los datos y pide confirmación EXPLÍCITA
 4. **Solo entonces ejecuta** `create_crm_client`
 
 ### REGLAS CRÍTICAS:
 1. **NUNCA crees un cliente sin confirmación explícita del usuario**
-2. **NUNCA inventes datos** (CIF, IBAN, dirección, razón social)
+2. **NUNCA inventes datos** (CIF, IBAN, dirección, razón social, contacto, email, teléfono)
 3. Si falta algún dato obligatorio, **pídeselo al usuario** antes de continuar
 4. Confirma al usuario cuando el cliente se haya creado: "Cliente creado correctamente (ID: XXX)"
 5. Si la creación falla, informa al usuario del error exacto

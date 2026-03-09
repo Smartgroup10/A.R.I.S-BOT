@@ -625,46 +625,50 @@ const CRM_TOOLS = [
         },
         provincia: {
           type: 'string',
-          description: 'Provincia (ej: "Madrid")'
+          description: 'Provincia española EN MAYÚSCULAS (ej: "MADRID", "BARCELONA", "SEVILLA")'
+        },
+        municipio: {
+          type: 'string',
+          description: 'Municipio/localidad del cliente (ej: "Madrid", "Alcobendas")'
         },
         cargo: {
           type: 'string',
-          description: 'Cargo del contacto principal (ej: "Administrador")'
+          description: 'Cargo del contacto principal (ej: "Administrador", "Gerente")'
         },
         iban: {
           type: 'string',
-          description: 'IBAN completo y válido (ej: "ES7620770024003102575766")'
-        },
-        lineaspot: {
-          type: 'integer',
-          description: 'Número de líneas spot (por defecto 0)'
-        },
-        idve: {
-          type: 'integer',
-          description: 'ID del vendedor asignado (0 si no se conoce)'
-        },
-        cod_postal: {
-          type: 'string',
-          description: 'Código postal (opcional)'
-        },
-        poblacion: {
-          type: 'string',
-          description: 'Población/Ciudad (opcional)'
-        },
-        telefono: {
-          type: 'string',
-          description: 'Teléfono de contacto (opcional)'
-        },
-        email: {
-          type: 'string',
-          description: 'Email de contacto (opcional)'
+          description: 'IBAN completo y válido, sin espacios (ej: "ES9121000418450200051332")'
         },
         contacto: {
           type: 'string',
-          description: 'Nombre de la persona de contacto (opcional)'
+          description: 'Nombre completo de la persona de contacto (ej: "Juan García López")'
+        },
+        telefono: {
+          type: 'string',
+          description: 'Teléfono de contacto (ej: "912345678")'
+        },
+        email: {
+          type: 'string',
+          description: 'Email de contacto (ej: "contacto@empresa.com")'
+        },
+        lineaspot: {
+          type: 'integer',
+          description: 'Número de líneas potenciales (mínimo 1, por defecto 1)'
+        },
+        distribuidor: {
+          type: 'string',
+          description: 'Nombre o ID del distribuidor. Valores comunes: "SMARTGROUP" (por defecto), "GO RED", "ASOCIATEL". Si no se conoce, dejar vacío para usar SMARTGROUP.'
+        },
+        cod_postal: {
+          type: 'string',
+          description: 'Código postal (opcional, ej: "28006")'
+        },
+        poblacion: {
+          type: 'string',
+          description: 'Población/Ciudad (opcional, ej: "Madrid")'
         }
       },
-      required: ['nombre', 'cif', 'tipo_nif', 'razon_social', 'calle', 'provincia', 'cargo', 'iban']
+      required: ['nombre', 'cif', 'tipo_nif', 'razon_social', 'calle', 'provincia', 'municipio', 'cargo', 'iban', 'contacto', 'telefono', 'email']
     }
   }
 ];

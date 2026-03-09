@@ -1619,141 +1619,205 @@ async function sendTicketEmail(ticketId, toEmail, subject, htmlBody) {
   return { success: true, ticketId, rid: data2.rid };
 }
 
+// CLTIPONIF values (select dropdown in CRM form)
+const TIPO_NIF_MAP = {
+  'CIF': '1', 'NIF': '1', 'NIF/CIF': '1',
+  'Intracomunitario': '2',
+  'Pasaporte': '3',
+  'Doc.Oficial': '4',
+  'Cert.Residencia': '5',
+  'Otro': '6'
+};
+
+// CLIDVE (Distribuidor) — known values from CRM dropdown
+const DISTRIBUIDOR_MAP = {
+  'SMARTGROUP': '20', 'SMARTGROUP VOIP SERVICES SL': '20',
+  'GO RED': '58', 'GO RED TELECOMUNICACIONES': '58',
+  'ASOCIATEL': '61', 'ASOCIATEL INTEGRADOR DE SERVICIOS': '61',
+};
+const DEFAULT_DISTRIBUIDOR = '20'; // SMARTGROUP
+
 /**
  * Create a new client in the CRM.
- * Uses BDClientesCOMFichaValida.jsp for validation, then BDClientesCOMFicha.jsp for creation.
+ * 3-step flow: load form (init session) → validate → save with EdFunction=G.
  *
- * @param {Object} params
- * @param {string} params.nombre - Nombre comercial (required)
- * @param {string} params.cif - CIF/NIF válido (required)
- * @param {string} params.tipoNif - Tipo: CIF, NIF, NIE, Pasaporte (required)
- * @param {string} params.razonSocial - Razón social (required)
- * @param {string} params.calle - Dirección completa (required)
- * @param {string} params.provincia - Provincia (required)
- * @param {string} params.cargo - Cargo del contacto (required)
- * @param {string} params.iban - IBAN completo (required)
- * @param {number} [params.lineaspot=0] - Nº líneas spot
- * @param {number} [params.idve=0] - ID vendedor
- * @param {string} [params.codPostal] - Código postal
- * @param {string} [params.poblacion] - Población
- * @param {string} [params.telefono] - Teléfono
- * @param {string} [params.email] - Email
- * @param {string} [params.contacto] - Nombre del contacto
- * @returns {{ success: boolean, clientId?: string, message?: string, error?: string }}
+ * Required fields (server-side enforced):
+ *   nombre, cif, tipoNif, razonSocial, calle, provincia, municipio,
+ *   cargo, iban, contacto, telefono, email, lineaspot (>0), idve (distribuidor)
  */
-async function createClient({ nombre, cif, tipoNif, razonSocial, calle, provincia, cargo, iban, lineaspot, idve, ...opcionales }) {
-  if (!nombre || !cif || !tipoNif || !razonSocial || !calle || !provincia || !cargo || !iban) {
-    return { success: false, error: 'Faltan campos obligatorios (nombre, cif, tipoNif, razonSocial, calle, provincia, cargo, iban)' };
+async function createClient({ nombre, cif, tipoNif, razonSocial, calle, provincia, cargo, iban,
+                               municipio, contacto, telefono, email, lineaspot, idve, ...opcionales }) {
+  // Validate required fields locally first
+  const missing = [];
+  if (!nombre) missing.push('nombre');
+  if (!cif) missing.push('cif');
+  if (!razonSocial) missing.push('razonSocial');
+  if (!calle) missing.push('calle');
+  if (!provincia) missing.push('provincia');
+  if (!cargo) missing.push('cargo');
+  if (!iban) missing.push('iban');
+  if (!contacto) missing.push('contacto');
+  if (!telefono) missing.push('telefono');
+  if (!email) missing.push('email');
+  if (missing.length > 0) {
+    return { success: false, error: `Faltan campos obligatorios: ${missing.join(', ')}` };
   }
 
   const cookie = await login();
 
-  // Common fields for both validation and creation
+  // Resolve tipoNif to numeric value
+  const clTipoNif = TIPO_NIF_MAP[tipoNif] || TIPO_NIF_MAP[(tipoNif || '').toUpperCase()] || '1';
+
+  // Resolve distribuidor: if numeric string use as-is, otherwise look up
+  let clIdve = String(idve || '');
+  if (!clIdve || clIdve === '0') {
+    clIdve = DEFAULT_DISTRIBUIDOR;
+  } else if (!/^\d+$/.test(clIdve)) {
+    clIdve = DISTRIBUIDOR_MAP[clIdve.toUpperCase()] || DEFAULT_DISTRIBUIDOR;
+  }
+
+  // Normalize provincia to uppercase (CRM expects exact match from dropdown)
+  const clProvincia = (provincia || '').toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+
+  // Remove spaces from IBAN
+  const clIban = (iban || '').replace(/\s+/g, '');
+
+  // Common fields
   const commonFields = {
     crmEmpresa: CRM_EMPRESA,
     CLID: '0',
     CLNOMBRE: nombre,
     CLCIF: cif,
-    CLTIPONIF: tipoNif,
+    CLTIPONIF: clTipoNif,
     CLRASOCIAL: razonSocial,
     CLCALLE: calle,
-    CLPROVINCIA: provincia,
+    CLPROVINCIA: clProvincia,
     CLCARGO: cargo,
-    CLIBAN: iban,
-    CLLINEASPOT: String(lineaspot || 0),
-    CLIDVE: String(idve || 0),
+    CLIBAN: clIban,
+    CLLINEASPOT: String(lineaspot || 1),
+    CLIDVE: clIdve,
     CLCODPOST: opcionales.codPostal || '',
     CLPOBLACION: opcionales.poblacion || '',
-    CLTELEFONO: opcionales.telefono || '',
-    CLEMAIL: opcionales.email || '',
-    CLCONTACTO: opcionales.contacto || ''
+    CLMUNICIPIO: municipio || opcionales.poblacion || '',
+    CLTELEFONO: telefono,
+    CLEMAIL: email,
+    CLCONTACTO: contacto,
+    CLTELEFONO2: '',
+    CLCOMISION: '',
+    CLPORTADO: '',
+    CLCODPAIS: '',
+    CLESTADOCOM: 'Inicial',
+    CLPAIS: '',
+    CLIDVE2: '',
+    CLIDAGRUPADA: '',
+    CLIDTECNICO: '',
+    CLFACTURA: '',
+    CLDIA1: '',
+    CLAGRUPACION: '',
+    CLTIPOCOB: '',
+    CLIVA: '',
+    CLEMPRESA: CRM_EMPRESA,
+    CLESTRUCTURA: '',
+    CLDIRFACT: '',
+    CLOBSERVA: '',
+    CLCOD: '',
+    CLCLAVEEXT: '',
+    CLFCREACION: '',
+    CLFECHASUS: '',
+    CLVPN: '',
+    CLCTOVDATOS: '',
+    CLCTBASE500: '',
+    CLCTILIMITADAS: '',
+    CLCTM2M: '',
+    CLCTOTR1: '',
+    CLCTOTR2: ''
   };
 
-  // Step 1: Validate (TIPOCHK=SAVE)
-  const validateParams = new URLSearchParams({ TIPOCHK: 'SAVE', ...commonFields });
+  // Step 1: Load the form to initialize server session
+  await fetch(`${CRM_URL}/BDClientesCOMFicha.jsp`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Cookie': cookie },
+    body: new URLSearchParams({ crmEmpresa: CRM_EMPRESA, CLID: '0', Seccion: '0', Iniciado: 'Clientes', EdFunction: 'N' }).toString()
+  });
 
+  // Step 2: Validate (TIPOCHK=SAVE) — returns JSON
   const resVal = await fetch(`${CRM_URL}/BDClientesCOMFichaValida.jsp`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Cookie': cookie },
-    body: validateParams.toString()
+    body: new URLSearchParams({ TIPOCHK: 'SAVE', ...commonFields }).toString()
   });
 
   if (!resVal.ok) {
     return { success: false, error: `Error de validación HTTP ${resVal.status}` };
   }
 
-  const valText = await resVal.text();
-
-  // Check for validation errors in the response
-  // The JSP returns HTML — errors typically appear as alert() or error messages
-  const errorMatch = valText.match(/alert\s*\(\s*["']([^"']+)["']\s*\)/i) ||
-                     valText.match(/class="error"[^>]*>([^<]+)</i) ||
-                     valText.match(/ERROR[:\s]+([^\n<]+)/i);
-  if (errorMatch) {
-    return { success: false, error: `Validación fallida: ${errorMatch[1].trim()}` };
+  const valData = await resVal.json().catch(() => null);
+  if (valData && valData.respuesta && valData.respuesta.startsWith('-')) {
+    return { success: false, error: `Validación CRM: ${valData.respuesta.substring(1)}` };
   }
 
-  // Step 2: Create (POST BDClientesCOMFicha.jsp)
-  const createParams = new URLSearchParams({
-    EdFunction: 'G',    // Guardar
-    Seccion: '0',
-    Iniciado: 'Clientes',
-    ...commonFields
-  });
-
+  // Step 3: Save (POST form with EdFunction=G)
   const resCreate = await fetch(`${CRM_URL}/BDClientesCOMFicha.jsp`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Cookie': cookie },
-    body: createParams.toString(),
+    body: new URLSearchParams({
+      EdFunction: 'G',
+      Seccion: '0',
+      SubSeccion: '0',
+      Entrada: '',
+      Iniciado: 'Clientes',
+      TIPOCHK: '',
+      SCRH: '900',
+      SCRW: '1440',
+      ...commonFields
+    }).toString(),
     redirect: 'manual'
   });
 
-  // Try to parse CLID from the response
+  const createText = await resCreate.text();
+
+  // Check for server-side save errors — only match errors that run on page load
+  // (inside $(document).ready or inline script), NOT inside function definitions
+  const docReadyBlock = createText.match(/\$\(document\)\.ready\(function\(\)\s*\{([\s\S]{0,2000}?)\}\)/);
+  const inlineError = docReadyBlock ? docReadyBlock[1].match(/MensajeError\(["']([^"']+)["']\)/) : null;
+  if (inlineError) {
+    const cleanError = inlineError[1].replace(/<br\s*\/?>/gi, '; ').replace(/<[^>]*>/g, '');
+    return { success: false, error: cleanError };
+  }
+
+  // Try to extract CLID from the saved form
   let clientId = null;
-
-  // Strategy 1: Check redirect location for CLID
-  const location = resCreate.headers.get('location') || '';
-  const locMatch = location.match(/CLID=(\d+)/);
-  if (locMatch) {
-    clientId = locMatch[1];
+  const clidMatch = createText.match(/name=["']CLID["'][^>]*value=["'](\d+)["']/i);
+  if (clidMatch && clidMatch[1] !== '0') {
+    clientId = clidMatch[1];
   }
 
-  // Strategy 2: Parse HTML body
+  // If CLID still 0, verify by searching (the save might have worked but form reloaded with CLID=0)
   if (!clientId) {
-    const createText = await resCreate.text();
-
-    // Look for CLID in hidden input
-    const hiddenMatch = createText.match(/name=["']CLID["'][^>]*value=["'](\d+)["']/i) ||
-                        createText.match(/value=["'](\d+)["'][^>]*name=["']CLID["']/i);
-    if (hiddenMatch && hiddenMatch[1] !== '0') {
-      clientId = hiddenMatch[1];
-    }
-
-    // Look for CLID=number in any URL or JS
-    if (!clientId) {
-      const clMatch = createText.match(/CLID[=:](\d+)/);
-      if (clMatch && clMatch[1] !== '0') {
-        clientId = clMatch[1];
+    try {
+      const verifyRes = await fetch(`${CRM_URL}/aServerSide.jsp?FCT=CLI_LISTA`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Cookie': cookie },
+        body: new URLSearchParams({ crmEmpresa: CRM_EMPRESA, CRMEMPRE: CRM_EMPRESA, CndBUS: cif, SCRH: '900', SCRW: '1440' }).toString()
+      });
+      const verifyData = await verifyRes.json();
+      const rows = verifyData.lista?.rows || [];
+      const match = rows.find(r => (r.data?.[1] || '').includes(nombre.substring(0, 10)));
+      if (match) {
+        clientId = parseClientId(match.data?.[0]);
       }
-    }
-
-    // Check for creation errors
-    const createError = createText.match(/alert\s*\(\s*["']([^"']+)["']\s*\)/i) ||
-                        createText.match(/class="error"[^>]*>([^<]+)</i) ||
-                        createText.match(/ERROR[:\s]+([^\n<]+)/i);
-    if (createError) {
-      return { success: false, error: `Error al crear cliente: ${createError[1].trim()}` };
-    }
+    } catch {}
   }
 
-  console.log(`CRM: client created "${nombre}" (CLID=${clientId || 'unknown'})`);
+  if (!clientId) {
+    return { success: false, error: 'No se pudo confirmar la creación del cliente. Verifica manualmente en el CRM.' };
+  }
 
+  console.log(`CRM: client created "${nombre}" (CLID=${clientId})`);
   return {
     success: true,
-    clientId: clientId || null,
-    message: clientId
-      ? `Cliente "${nombre}" creado correctamente (ID: ${clientId})`
-      : `Cliente "${nombre}" creado correctamente (no se pudo obtener el ID automáticamente)`
+    clientId,
+    message: `Cliente "${nombre}" creado correctamente (ID: ${clientId})`
   };
 }
 
