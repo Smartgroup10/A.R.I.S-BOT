@@ -95,7 +95,11 @@ async function init() {
   }
   try {
     // Read private key from env var (Coolify) or file (local dev)
-    const armoredKey = process.env.PASSBOLT_PRIVATE_KEY || fs.readFileSync(PRIVATE_KEY_PATH, 'utf-8');
+    let armoredKey = process.env.PASSBOLT_PRIVATE_KEY || fs.readFileSync(PRIVATE_KEY_PATH, 'utf-8');
+    // Fix escaped newlines from env vars (Coolify/Docker may store as literal \n)
+    if (armoredKey.includes('\\n')) {
+      armoredKey = armoredKey.replace(/\\n/g, '\n');
+    }
     const rawKey = await openpgp.readPrivateKey({ armoredKey });
     privateKey = await openpgp.decryptKey({ privateKey: rawKey, passphrase: PASSBOLT_PASSPHRASE });
 
@@ -108,6 +112,11 @@ async function init() {
     console.log('Passbolt: initialized OK');
   } catch (err) {
     console.error('Passbolt init error:', err.message);
+    // Log key diagnostics to help debug env var issues
+    const envKey = process.env.PASSBOLT_PRIVATE_KEY;
+    if (envKey) {
+      console.error(`Passbolt: PASSBOLT_PRIVATE_KEY length=${envKey.length}, starts="${envKey.substring(0, 40)}..."`);
+    }
     initialized = false;
   }
 }
