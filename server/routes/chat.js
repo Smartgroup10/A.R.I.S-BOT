@@ -466,6 +466,25 @@ router.post('/', async (req, res) => {
           emailThread: emails.length + 1
         };
       }
+      if (name === 'create_crm_client') {
+        return crm.createClient({
+          nombre: input.nombre,
+          cif: input.cif,
+          tipoNif: input.tipo_nif,
+          razonSocial: input.razon_social,
+          calle: input.calle,
+          provincia: input.provincia,
+          cargo: input.cargo,
+          iban: input.iban,
+          lineaspot: input.lineaspot || 0,
+          idve: input.idve || 0,
+          codPostal: input.cod_postal || '',
+          poblacion: input.poblacion || '',
+          telefono: input.telefono || '',
+          email: input.email || '',
+          contacto: input.contacto || ''
+        });
+      }
       return { error: `Unknown tool: ${name}` };
     }
 
@@ -539,7 +558,7 @@ router.post('/', async (req, res) => {
           try {
             const result = await executeTool(toolBlock.name, toolBlock.input);
             // Audit: log sensitive tool executions
-            const AUDITED_TOOLS = ['create_crm_ticket', 'close_crm_ticket', 'reply_ticket_email', 'add_seguimiento_crm'];
+            const AUDITED_TOOLS = ['create_crm_ticket', 'close_crm_ticket', 'reply_ticket_email', 'add_seguimiento_crm', 'create_crm_client'];
             if (AUDITED_TOOLS.includes(toolBlock.name)) {
               try { db.addAuditLog(req.user.id, 'tool_' + toolBlock.name, JSON.stringify(toolBlock.input).substring(0, 500)); } catch {}
             }

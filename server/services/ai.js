@@ -596,6 +596,76 @@ const CRM_TOOLS = [
       },
       required: ['ticket_id', 'to_email', 'reply_text']
     }
+  },
+  {
+    name: 'create_crm_client',
+    description: 'Crea un nuevo cliente en el CRM de ALPHA/JD Systems. SOLO usar cuando el usuario haya proporcionado TODOS los datos obligatorios y haya confirmado EXPLÍCITAMENTE que quiere crear el cliente. Antes de usar esta herramienta, SIEMPRE muestra un resumen completo de los datos y pide confirmación. Valida que el CIF/NIF y el IBAN tengan formato correcto antes de enviar.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        nombre: {
+          type: 'string',
+          description: 'Nombre comercial del cliente (ej: "Acme Corp")'
+        },
+        cif: {
+          type: 'string',
+          description: 'CIF/NIF válido del cliente (ej: "B12345678")'
+        },
+        tipo_nif: {
+          type: 'string',
+          description: 'Tipo de documento fiscal: CIF, NIF, NIE o Pasaporte'
+        },
+        razon_social: {
+          type: 'string',
+          description: 'Razón social completa (ej: "ACME CORPORATION SL")'
+        },
+        calle: {
+          type: 'string',
+          description: 'Dirección completa (ej: "Calle Mayor 10, 1ºA")'
+        },
+        provincia: {
+          type: 'string',
+          description: 'Provincia (ej: "Madrid")'
+        },
+        cargo: {
+          type: 'string',
+          description: 'Cargo del contacto principal (ej: "Administrador")'
+        },
+        iban: {
+          type: 'string',
+          description: 'IBAN completo y válido (ej: "ES7620770024003102575766")'
+        },
+        lineaspot: {
+          type: 'integer',
+          description: 'Número de líneas spot (por defecto 0)'
+        },
+        idve: {
+          type: 'integer',
+          description: 'ID del vendedor asignado (0 si no se conoce)'
+        },
+        cod_postal: {
+          type: 'string',
+          description: 'Código postal (opcional)'
+        },
+        poblacion: {
+          type: 'string',
+          description: 'Población/Ciudad (opcional)'
+        },
+        telefono: {
+          type: 'string',
+          description: 'Teléfono de contacto (opcional)'
+        },
+        email: {
+          type: 'string',
+          description: 'Email de contacto (opcional)'
+        },
+        contacto: {
+          type: 'string',
+          description: 'Nombre de la persona de contacto (opcional)'
+        }
+      },
+      required: ['nombre', 'cif', 'tipo_nif', 'razon_social', 'calle', 'provincia', 'cargo', 'iban']
+    }
   }
 ];
 
