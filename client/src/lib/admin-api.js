@@ -190,8 +190,9 @@ export async function fetchCRMClients(query = '') {
 
 // --- CRM Ticket Stats ---
 
-export async function fetchCRMTicketStats() {
-  const res = await fetch(`${API_BASE}/crm-tickets/stats`, { headers: authHeaders() })
+export async function fetchCRMTicketStats(perfil = '') {
+  const url = perfil ? `${API_BASE}/crm-tickets/stats?perfil=${encodeURIComponent(perfil)}` : `${API_BASE}/crm-tickets/stats`
+  const res = await fetch(url, { headers: authHeaders() })
   handleUnauthorized(res)
   return res.json()
 }

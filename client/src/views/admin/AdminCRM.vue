@@ -8,6 +8,9 @@ const sending = ref(false)
 const validating = ref(false)
 const message = ref(null) // { type: 'success'|'error', text: '' }
 
+// Ticket perfil filter
+const selectedPerfil = ref('')
+
 // Client search
 const clientSearch = ref('')
 const selectedClient = ref(null)
@@ -54,6 +57,11 @@ onMounted(() => {
   admin.loadCRM2FAStatus()
   admin.loadCRMClients('')
   admin.loadCRMTicketStats()
+})
+
+// Watch perfil filter changes
+watch(selectedPerfil, (val) => {
+  admin.loadCRMTicketStats(val)
 })
 
 // Debounced client search
@@ -252,16 +260,25 @@ async function handleValidate() {
       <div class="border-t border-[#252b45] pt-8 mb-8">
         <div class="flex items-center justify-between mb-4">
           <h2 class="text-xl font-bold text-white">Dashboard de Tickets</h2>
-          <button
-            @click="admin.loadCRMTicketStats()"
-            :disabled="admin.crmTicketStatsLoading"
-            class="px-3 py-1.5 bg-[#252b45] text-gray-300 rounded-lg text-xs hover:bg-[#333b55] transition-colors flex items-center gap-1.5 disabled:opacity-50"
-          >
-            <svg :class="admin.crmTicketStatsLoading ? 'animate-spin' : ''" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
-            </svg>
-            Actualizar
-          </button>
+          <div class="flex items-center gap-2">
+            <select
+              v-model="selectedPerfil"
+              class="px-3 py-1.5 bg-[#252b45] text-gray-300 rounded-lg text-xs border border-[#333b55] focus:outline-none focus:border-cyan-400"
+            >
+              <option value="">Todos los perfiles</option>
+              <option v-for="p in admin.crmTicketStats?.perfiles || []" :key="p" :value="p">{{ p }}</option>
+            </select>
+            <button
+              @click="admin.loadCRMTicketStats(selectedPerfil)"
+              :disabled="admin.crmTicketStatsLoading"
+              class="px-3 py-1.5 bg-[#252b45] text-gray-300 rounded-lg text-xs hover:bg-[#333b55] transition-colors flex items-center gap-1.5 disabled:opacity-50"
+            >
+              <svg :class="admin.crmTicketStatsLoading ? 'animate-spin' : ''" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+              </svg>
+              Actualizar
+            </button>
+          </div>
         </div>
 
         <!-- Loading -->

@@ -132,10 +132,10 @@ export const useAdminStore = defineStore('admin', () => {
     }
   }
 
-  async function loadCRMTicketStats() {
+  async function loadCRMTicketStats(perfil = '') {
     crmTicketStatsLoading.value = true
     try {
-      crmTicketStats.value = await adminApi.fetchCRMTicketStats()
+      crmTicketStats.value = await adminApi.fetchCRMTicketStats(perfil)
     } catch (err) {
       console.error('Error loading CRM ticket stats:', err)
     } finally {

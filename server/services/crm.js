@@ -1965,12 +1965,24 @@ async function createClient({ nombre, cif, tipoNif, razonSocial, calle, provinci
  * Get ticket dashboard stats for admin panel.
  * Fetches open + closed tickets and aggregates by estado, area, tema, prioridad.
  */
-async function getTicketDashboardStats() {
-  // Fetch open tickets (cached) and closed tickets in parallel
-  const [openTickets, closedTickets] = await Promise.all([
-    getTickets(),
-    fetchTickets({ cerrado: '1' }).catch(() => [])
-  ]);
+async function getTicketDashboardStats(perfil = '') {
+  // Always fetch all open tickets (cached) for profile list
+  const allOpenTickets = await getTickets();
+
+  // Extract unique profiles for dropdown
+  const perfilesSet = new Set();
+  for (const t of allOpenTickets) {
+    if (t.perfil) perfilesSet.add(t.perfil);
+  }
+  const perfiles = [...perfilesSet].sort();
+
+  // Filter open tickets by perfil if specified
+  const openTickets = perfil ? allOpenTickets.filter(t => t.perfil === perfil) : allOpenTickets;
+
+  // Fetch closed tickets (with perfil filter if specified)
+  const closedFilters = { cerrado: '1' };
+  if (perfil) closedFilters.perfil = perfil;
+  const closedTickets = await fetchTickets(closedFilters).catch(() => []);
 
   const allTickets = [...openTickets, ...closedTickets];
 
@@ -2012,7 +2024,8 @@ async function getTicketDashboardStats() {
     por_area,
     por_tema,
     por_prioridad,
-    recientes
+    recientes,
+    perfiles
   };
 }
 

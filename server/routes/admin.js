@@ -432,7 +432,8 @@ router.get('/crm-tickets/stats', async (req, res) => {
     if (!crm.isConfigured()) {
       return res.json({ error: 'CRM no configurado' });
     }
-    const stats = await crm.getTicketDashboardStats();
+    const perfil = req.query.perfil || '';
+    const stats = await crm.getTicketDashboardStats(perfil);
     res.json(stats);
   } catch (err) {
     console.error('Admin CRM ticket stats error:', err);
