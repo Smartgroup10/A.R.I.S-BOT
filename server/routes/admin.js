@@ -3,6 +3,7 @@ const bcrypt = require('bcryptjs');
 const db = require('../db');
 const emailService = require('../services/email');
 const passbolt = require('../services/passbolt');
+const crm = require('../services/crm');
 const { getProviderModel } = require('../services/ai');
 
 const router = express.Router();
@@ -392,6 +393,58 @@ router.get('/audit', (req, res) => {
   } catch (err) {
     console.error('Admin audit error:', err);
     res.status(500).json({ error: 'Error obteniendo audit log' });
+  }
+});
+
+// --- CRM 2FA Management ---
+
+// GET /api/admin/crm-2fa/status — check 2FA status
+router.get('/crm-2fa/status', async (req, res) => {
+  try {
+    if (!crm.isConfigured()) {
+      return res.json({ configured: false });
+    }
+    const status = crm.get2FAStatus();
+    // Only check if 2FA is required when not already validated
+    let required = false;
+    if (!status.validated) {
+      try { required = await crm.check2FARequired(); } catch {}
+    }
+    res.json({ configured: true, ...status, required });
+  } catch (err) {
+    console.error('Admin CRM 2FA status error:', err);
+    res.status(500).json({ error: 'Error obteniendo estado 2FA del CRM' });
+  }
+});
+
+// POST /api/admin/crm-2fa/send — send SMS code
+router.post('/crm-2fa/send', async (req, res) => {
+  try {
+    const result = await crm.send2FA();
+    if (result.success) {
+      try { db.addAuditLog(req.user.id, 'crm_2fa_send', 'SMS code requested'); } catch {}
+    }
+    res.json(result);
+  } catch (err) {
+    console.error('Admin CRM 2FA send error:', err);
+    res.status(500).json({ success: false, error: 'Error enviando codigo SMS' });
+  }
+});
+
+// POST /api/admin/crm-2fa/validate — validate SMS code
+router.post('/crm-2fa/validate', async (req, res) => {
+  try {
+    const { code } = req.body;
+    if (!code) return res.status(400).json({ success: false, error: 'Codigo requerido' });
+
+    const result = await crm.validate2FA(code);
+    if (result.success) {
+      try { db.addAuditLog(req.user.id, 'crm_2fa_validate', 'SMS code validated successfully'); } catch {}
+    }
+    res.json(result);
+  } catch (err) {
+    console.error('Admin CRM 2FA validate error:', err);
+    res.status(500).json({ success: false, error: 'Error validando codigo SMS' });
   }
 });
 

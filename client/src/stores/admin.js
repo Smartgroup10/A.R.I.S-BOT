@@ -11,6 +11,7 @@ export const useAdminStore = defineStore('admin', () => {
   const knowledgeStats = ref({ total: 0, totalUses: 0 })
   const apiUsage = ref(null)
   const passboltStatus = ref(null)
+  const crm2FAStatus = ref(null)
   const auditLog = ref([])
   const loading = ref(false)
 
@@ -126,6 +127,22 @@ export const useAdminStore = defineStore('admin', () => {
     }
   }
 
+  async function loadCRM2FAStatus() {
+    try {
+      crm2FAStatus.value = await adminApi.fetchCRM2FAStatus()
+    } catch (err) {
+      console.error('Error loading CRM 2FA status:', err)
+    }
+  }
+
+  async function sendCRM2FA() {
+    return adminApi.sendCRM2FA()
+  }
+
+  async function validateCRM2FA(code) {
+    return adminApi.validateCRM2FA(code)
+  }
+
   return {
     users,
     stats,
@@ -153,6 +170,10 @@ export const useAdminStore = defineStore('admin', () => {
     auditLog,
     loadAuditLog,
     passboltStatus,
-    loadPassboltStatus
+    loadPassboltStatus,
+    crm2FAStatus,
+    loadCRM2FAStatus,
+    sendCRM2FA,
+    validateCRM2FA
   }
 })

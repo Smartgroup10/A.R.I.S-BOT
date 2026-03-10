@@ -11,6 +11,7 @@ const AdminSources = () => import('../views/admin/AdminSources.vue')
 const AdminKnowledge = () => import('../views/admin/AdminKnowledge.vue')
 const AdminVault = () => import('../views/admin/AdminVault.vue')
 const AdminAudit = () => import('../views/admin/AdminAudit.vue')
+const AdminCRM = () => import('../views/admin/AdminCRM.vue')
 const SetupPassword = () => import('../views/SetupPassword.vue')
 
 const routes = [
@@ -42,7 +43,8 @@ const routes = [
       { path: 'sources', name: 'admin-sources', component: AdminSources },
       { path: 'knowledge', name: 'admin-knowledge', component: AdminKnowledge },
       { path: 'vault', name: 'admin-vault', component: AdminVault },
-      { path: 'audit', name: 'admin-audit', component: AdminAudit }
+      { path: 'audit', name: 'admin-audit', component: AdminAudit },
+      { path: 'crm', name: 'admin-crm', component: AdminCRM }
     ]
   }
 ]

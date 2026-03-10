@@ -10,9 +10,94 @@ const CRM_EMPRESA = process.env.CRM_EMPRESA || 'ALPHAV2';
 
 let sessionCookie = null;
 let sessionExpiry = 0;
+let twoFAValidated = false;
+let twoFAExpiry = 0;
 
 function isConfigured() {
   return !!(CRM_URL && CRM_USER && CRM_PASS);
+}
+
+/**
+ * Check if 2FA is needed by testing a JSP page.
+ * API endpoints (aServerSide.jsp) work without 2FA, but JSP pages redirect to InicioSMS.jsp.
+ */
+async function check2FARequired() {
+  const cookie = await login();
+  const res = await fetch(`${CRM_URL}/BDClientesCOMFicha.jsp`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Cookie': cookie },
+    body: new URLSearchParams({ crmEmpresa: CRM_EMPRESA, CLID: '0', Seccion: '0', Iniciado: 'Clientes', EdFunction: 'N' }).toString()
+  });
+  const text = await res.text();
+  return text.includes('InicioSMS');
+}
+
+/**
+ * Get 2FA status
+ */
+function get2FAStatus() {
+  const validated = twoFAValidated && Date.now() < twoFAExpiry;
+  return {
+    validated,
+    expiresAt: validated ? new Date(twoFAExpiry).toISOString() : null,
+    remainingMinutes: validated ? Math.max(0, Math.round((twoFAExpiry - Date.now()) / 60000)) : 0,
+    sessionActive: !!(sessionCookie && Date.now() < sessionExpiry)
+  };
+}
+
+/**
+ * Send 2FA SMS code via CRM
+ */
+async function send2FA() {
+  const cookie = await login();
+  const res = await fetch(`${CRM_URL}/aServerSide.jsp?FCT=SMS_ACCESO`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Cookie': cookie },
+    body: new URLSearchParams({
+      crmEmpresa: CRM_EMPRESA, Seccion: '0', SubSeccion: '0',
+      Iniciado: 'loginsms', SCRH: '900', SCRW: '1440'
+    }).toString()
+  });
+  const data = await res.json();
+  if (data.respuesta && data.respuesta.startsWith('-')) {
+    return { success: false, error: data.respuesta.substring(1) };
+  }
+  console.log('CRM: 2FA SMS code sent');
+  return { success: true, message: data.resp || 'Codigo enviado' };
+}
+
+/**
+ * Validate 2FA SMS code and complete navigation flow
+ */
+async function validate2FA(code) {
+  const cookie = await login();
+  const res = await fetch(`${CRM_URL}/aServerSide.jsp?FCT=SMS_CODIGO`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Cookie': cookie },
+    body: new URLSearchParams({
+      crmEmpresa: CRM_EMPRESA, U_TOKEN: code,
+      Seccion: '0', SubSeccion: '0', Iniciado: 'loginsms', SCRH: '900', SCRW: '1440'
+    }).toString()
+  });
+  const data = await res.json();
+  if (data.respuesta && data.respuesta.startsWith('-')) {
+    return { success: false, error: data.respuesta.substring(1) };
+  }
+
+  // Complete the navigation flow (required after SMS validation)
+  await fetch(`${CRM_URL}/PrinPresentacion.jsp`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Cookie': cookie },
+    body: new URLSearchParams({
+      crmEmpresa: CRM_EMPRESA, Seccion: '0', SubSeccion: '0',
+      Entrada: '', EdFunction: '', Iniciado: 'loginsms', SCRH: '900', SCRW: '1440'
+    }).toString()
+  });
+
+  twoFAValidated = true;
+  twoFAExpiry = Date.now() + 25 * 60 * 1000; // 25 min (conservative vs 30min session)
+  console.log('CRM: 2FA validated successfully');
+  return { success: true, message: data.resp || 'Acceso autorizado' };
 }
 
 /**
@@ -22,6 +107,10 @@ async function login() {
   if (sessionCookie && Date.now() < sessionExpiry) {
     return sessionCookie;
   }
+
+  // New session invalidates 2FA
+  twoFAValidated = false;
+  twoFAExpiry = 0;
 
   const params = new URLSearchParams({
     USU_LOGIN: CRM_USER,
@@ -1665,6 +1754,17 @@ async function createClient({ nombre, cif, tipoNif, razonSocial, calle, provinci
 
   const cookie = await login();
 
+  // Check 2FA status — JSP pages require completed 2FA from unrecognized IPs
+  if (!twoFAValidated || Date.now() >= twoFAExpiry) {
+    const needs2FA = await check2FARequired();
+    if (needs2FA) {
+      return { success: false, error: 'Se requiere verificacion 2FA del CRM. Un administrador debe completar el 2FA desde el panel de administracion (seccion CRM).' };
+    }
+    // If no 2FA needed (IP whitelisted), mark as validated
+    twoFAValidated = true;
+    twoFAExpiry = sessionExpiry;
+  }
+
   // Resolve tipoNif to numeric value
   const clTipoNif = TIPO_NIF_MAP[tipoNif] || TIPO_NIF_MAP[(tipoNif || '').toUpperCase()] || '1';
 
@@ -1847,5 +1947,9 @@ module.exports = {
   fetchClientTicketsById,
   fetchClientLines,
   closeTicket,
+  get2FAStatus,
+  send2FA,
+  validate2FA,
+  check2FARequired,
   suggestTicketClassification
 };

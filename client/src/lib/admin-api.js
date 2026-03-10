@@ -178,3 +178,28 @@ export async function fetchPassboltStatus() {
   handleUnauthorized(res)
   return res.json()
 }
+
+// --- CRM 2FA ---
+
+export async function fetchCRM2FAStatus() {
+  const res = await fetch(`${API_BASE}/crm-2fa/status`, { headers: authHeaders() })
+  handleUnauthorized(res)
+  return res.json()
+}
+
+export async function sendCRM2FA() {
+  const res = await fetch(`${API_BASE}/crm-2fa/send`, {
+    method: 'POST',
+    headers: authHeaders()
+  })
+  return res.json()
+}
+
+export async function validateCRM2FA(code) {
+  const res = await fetch(`${API_BASE}/crm-2fa/validate`, {
+    method: 'POST',
+    headers: authHeaders(),
+    body: JSON.stringify({ code })
+  })
+  return res.json()
+}
