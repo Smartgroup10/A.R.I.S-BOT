@@ -240,6 +240,83 @@ async function getRelevantContext(query) {
   }
 }
 
+/**
+ * Create a new page in BookStack.
+ * @param {object} opts - { book_id, chapter_id, name, markdown|html }
+ * Must provide either book_id or chapter_id (not both).
+ */
+async function createPage(opts) {
+  if (!isConfigured()) throw new Error('BookStack no está configurado.');
+  const url = new URL('/api/pages', BASE_URL);
+  const res = await fetch(url.toString(), {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify(opts)
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`BookStack create page error ${res.status}: ${text}`);
+  }
+  return res.json();
+}
+
+/**
+ * Update an existing page in BookStack.
+ * @param {number} pageId
+ * @param {object} updates - { name?, markdown?, html? }
+ */
+async function updatePage(pageId, updates) {
+  if (!isConfigured()) throw new Error('BookStack no está configurado.');
+  const url = new URL(`/api/pages/${pageId}`, BASE_URL);
+  const res = await fetch(url.toString(), {
+    method: 'PUT',
+    headers: getHeaders(),
+    body: JSON.stringify(updates)
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`BookStack update page error ${res.status}: ${text}`);
+  }
+  return res.json();
+}
+
+/**
+ * Delete a page from BookStack.
+ * @param {number} pageId
+ */
+async function deletePage(pageId) {
+  if (!isConfigured()) throw new Error('BookStack no está configurado.');
+  const url = new URL(`/api/pages/${pageId}`, BASE_URL);
+  const res = await fetch(url.toString(), {
+    method: 'DELETE',
+    headers: getHeaders()
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`BookStack delete page error ${res.status}: ${text}`);
+  }
+  return true;
+}
+
+/**
+ * List chapters in a book.
+ */
+async function listChapters(bookId) {
+  const data = await apiCall('chapters', { count: 100, 'filter[book_id]': bookId });
+  return data.data || [];
+}
+
+/**
+ * List pages in a book or chapter.
+ */
+async function listPages(filters = {}) {
+  const params = { count: 100 };
+  if (filters.book_id) params['filter[book_id]'] = filters.book_id;
+  if (filters.chapter_id) params['filter[chapter_id]'] = filters.chapter_id;
+  const data = await apiCall('pages', params);
+  return data.data || [];
+}
+
 function stripHtml(html) {
   return html
     .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
@@ -256,5 +333,10 @@ module.exports = {
   getChapter,
   getBook,
   listBooks,
+  listChapters,
+  listPages,
+  createPage,
+  updatePage,
+  deletePage,
   getRelevantContext
 };

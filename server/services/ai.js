@@ -673,10 +673,78 @@ const CRM_TOOLS = [
   }
 ];
 
+const BOOKSTACK_TOOLS = [
+  {
+    name: 'search_bookstack_pages',
+    description: 'Busca páginas, libros y capítulos en la wiki corporativa BookStack. Usa esta herramienta para encontrar contenido existente antes de crear o editar páginas.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        query: {
+          type: 'string',
+          description: 'Texto de búsqueda (ej: "VPN", "procedimiento alta cliente", "configuración centralita")'
+        }
+      },
+      required: ['query']
+    }
+  },
+  {
+    name: 'create_bookstack_page',
+    description: 'Crea una página nueva en la wiki corporativa BookStack. Debe pertenecer a un libro (book_id) o capítulo (chapter_id). El contenido se escribe en Markdown.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        book_id: {
+          type: 'integer',
+          description: 'ID del libro donde crear la página (usar si no va dentro de un capítulo)'
+        },
+        chapter_id: {
+          type: 'integer',
+          description: 'ID del capítulo donde crear la página (usar si va dentro de un capítulo específico)'
+        },
+        name: {
+          type: 'string',
+          description: 'Título de la página (ej: "Guía de configuración VPN")'
+        },
+        content: {
+          type: 'string',
+          description: 'Contenido de la página en formato Markdown'
+        }
+      },
+      required: ['name', 'content']
+    }
+  },
+  {
+    name: 'update_bookstack_page',
+    description: 'Edita una página existente en la wiki corporativa BookStack. Puede actualizar el título, el contenido (Markdown) o ambos.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        page_id: {
+          type: 'integer',
+          description: 'ID de la página a editar (obtenerlo con search_bookstack_pages primero)'
+        },
+        name: {
+          type: 'string',
+          description: 'Nuevo título de la página (opcional, solo si se quiere cambiar)'
+        },
+        content: {
+          type: 'string',
+          description: 'Nuevo contenido completo de la página en Markdown (reemplaza todo el contenido actual)'
+        }
+      },
+      required: ['page_id']
+    }
+  }
+];
+
 function getToolDefinitions(sourceAccess) {
   const tools = [];
   if (sourceAccess && sourceAccess.crm) {
     tools.push(...CRM_TOOLS);
+  }
+  if (sourceAccess && sourceAccess.bookstack) {
+    tools.push(...BOOKSTACK_TOOLS);
   }
   return tools;
 }

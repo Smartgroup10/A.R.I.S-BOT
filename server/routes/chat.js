@@ -488,6 +488,38 @@ router.post('/', async (req, res) => {
           poblacion: input.poblacion || ''
         });
       }
+      if (name === 'search_bookstack_pages') {
+        const results = await bookstack.search(input.query, 10);
+        return {
+          total: results.length,
+          results: results.map(r => ({
+            id: r.id,
+            name: r.name,
+            type: r.type,
+            url: r.url || null
+          }))
+        };
+      }
+      if (name === 'create_bookstack_page') {
+        const opts = { name: input.name, markdown: input.content };
+        if (input.book_id) opts.book_id = input.book_id;
+        if (input.chapter_id) opts.chapter_id = input.chapter_id;
+        if (!opts.book_id && !opts.chapter_id) {
+          return { error: 'Debes especificar book_id o chapter_id para crear la página.' };
+        }
+        const page = await bookstack.createPage(opts);
+        return { success: true, id: page.id, name: page.name, slug: page.slug };
+      }
+      if (name === 'update_bookstack_page') {
+        const updates = {};
+        if (input.name) updates.name = input.name;
+        if (input.content) updates.markdown = input.content;
+        if (!updates.name && !updates.markdown) {
+          return { error: 'Debes proporcionar al menos name o content para actualizar.' };
+        }
+        const page = await bookstack.updatePage(input.page_id, updates);
+        return { success: true, id: page.id, name: page.name };
+      }
       return { error: `Unknown tool: ${name}` };
     }
 
@@ -561,7 +593,7 @@ router.post('/', async (req, res) => {
           try {
             const result = await executeTool(toolBlock.name, toolBlock.input);
             // Audit: log sensitive tool executions
-            const AUDITED_TOOLS = ['create_crm_ticket', 'close_crm_ticket', 'reply_ticket_email', 'add_seguimiento_crm', 'create_crm_client'];
+            const AUDITED_TOOLS = ['create_crm_ticket', 'close_crm_ticket', 'reply_ticket_email', 'add_seguimiento_crm', 'create_crm_client', 'create_bookstack_page', 'update_bookstack_page'];
             if (AUDITED_TOOLS.includes(toolBlock.name)) {
               try { db.addAuditLog(req.user.id, 'tool_' + toolBlock.name, JSON.stringify(toolBlock.input).substring(0, 500)); } catch {}
             }
