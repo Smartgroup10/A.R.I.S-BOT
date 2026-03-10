@@ -1834,13 +1834,22 @@ async function createClient({ nombre, cif, tipoNif, razonSocial, calle, provinci
   };
 
   // Step 1: Load the form to initialize server session
-  await fetch(`${CRM_URL}/BDClientesCOMFicha.jsp`, {
+  console.log('CRM createClient: Step 1 — init session');
+  const r1 = await fetch(`${CRM_URL}/BDClientesCOMFicha.jsp`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Cookie': cookie },
     body: new URLSearchParams({ crmEmpresa: CRM_EMPRESA, CLID: '0', Seccion: '0', Iniciado: 'Clientes', EdFunction: 'N' }).toString()
   });
+  const r1text = await r1.text();
+  console.log(`CRM createClient: Step 1 — len=${r1text.length}, redirect=${r1text.includes('InicioSMS')}`);
+  if (r1text.includes('InicioSMS')) {
+    twoFAValidated = false;
+    twoFAExpiry = 0;
+    return { success: false, error: 'Se requiere verificacion 2FA del CRM. La sesion 2FA ha expirado. Complete el 2FA desde el panel de administracion (seccion CRM).' };
+  }
 
   // Step 2: Validate (TIPOCHK=SAVE) — returns JSON
+  console.log('CRM createClient: Step 2 — validate');
   const resVal = await fetch(`${CRM_URL}/BDClientesCOMFichaValida.jsp`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Cookie': cookie },
@@ -1848,15 +1857,20 @@ async function createClient({ nombre, cif, tipoNif, razonSocial, calle, provinci
   });
 
   if (!resVal.ok) {
-    return { success: false, error: `Error de validación HTTP ${resVal.status}` };
+    console.log(`CRM createClient: Step 2 FAILED — HTTP ${resVal.status}`);
+    return { success: false, error: `Error de validacion HTTP ${resVal.status}` };
   }
 
-  const valData = await resVal.json().catch(() => null);
+  const valText = await resVal.text();
+  console.log(`CRM createClient: Step 2 — response: ${valText.substring(0, 200)}`);
+  const valData = (() => { try { return JSON.parse(valText); } catch { return null; } })();
   if (valData && valData.respuesta && valData.respuesta.startsWith('-')) {
-    return { success: false, error: `Validación CRM: ${valData.respuesta.substring(1)}` };
+    console.log(`CRM createClient: Step 2 VALIDATION ERROR: ${valData.respuesta}`);
+    return { success: false, error: `Validacion CRM: ${valData.respuesta.substring(1)}` };
   }
 
   // Step 3: Save (POST form with EdFunction=G)
+  console.log('CRM createClient: Step 3 — save');
   const resCreate = await fetch(`${CRM_URL}/BDClientesCOMFicha.jsp`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Cookie': cookie },
@@ -1875,6 +1889,14 @@ async function createClient({ nombre, cif, tipoNif, razonSocial, calle, provinci
   });
 
   const createText = await resCreate.text();
+  console.log(`CRM createClient: Step 3 — len=${createText.length}, redirect=${createText.includes('InicioSMS')}`);
+
+  // If save also redirected to InicioSMS, 2FA expired mid-flow
+  if (createText.includes('InicioSMS')) {
+    twoFAValidated = false;
+    twoFAExpiry = 0;
+    return { success: false, error: 'La sesion 2FA del CRM expiro durante el guardado. Complete el 2FA de nuevo desde el panel de administracion.' };
+  }
 
   // Check for server-side save errors — only match errors that run on page load
   // (inside $(document).ready or inline script), NOT inside function definitions
@@ -1882,6 +1904,7 @@ async function createClient({ nombre, cif, tipoNif, razonSocial, calle, provinci
   const inlineError = docReadyBlock ? docReadyBlock[1].match(/MensajeError\(["']([^"']+)["']\)/) : null;
   if (inlineError) {
     const cleanError = inlineError[1].replace(/<br\s*\/?>/gi, '; ').replace(/<[^>]*>/g, '');
+    console.log(`CRM createClient: Step 3 INLINE ERROR: ${cleanError}`);
     return { success: false, error: cleanError };
   }
 
@@ -1891,9 +1914,11 @@ async function createClient({ nombre, cif, tipoNif, razonSocial, calle, provinci
   if (clidMatch && clidMatch[1] !== '0') {
     clientId = clidMatch[1];
   }
+  console.log(`CRM createClient: Step 3 — CLID from HTML: ${clientId || 'not found'}`);
 
   // If CLID still 0, verify by searching (the save might have worked but form reloaded with CLID=0)
   if (!clientId) {
+    console.log(`CRM createClient: Step 4 — verify by CIF search: ${cif}`);
     try {
       const verifyRes = await fetch(`${CRM_URL}/aServerSide.jsp?FCT=CLI_LISTA`, {
         method: 'POST',
@@ -1902,15 +1927,22 @@ async function createClient({ nombre, cif, tipoNif, razonSocial, calle, provinci
       });
       const verifyData = await verifyRes.json();
       const rows = verifyData.lista?.rows || [];
+      console.log(`CRM createClient: Step 4 — search results: ${rows.length}`);
       const match = rows.find(r => (r.data?.[1] || '').includes(nombre.substring(0, 10)));
       if (match) {
         clientId = parseClientId(match.data?.[0]);
+        console.log(`CRM createClient: Step 4 — found CLID: ${clientId}`);
+      } else {
+        console.log(`CRM createClient: Step 4 — no match for "${nombre.substring(0, 10)}" in ${rows.length} rows`);
       }
-    } catch {}
+    } catch (e) {
+      console.log(`CRM createClient: Step 4 — verify error: ${e.message}`);
+    }
   }
 
   if (!clientId) {
-    return { success: false, error: 'No se pudo confirmar la creación del cliente. Verifica manualmente en el CRM.' };
+    console.log('CRM createClient: FAILED — could not confirm creation');
+    return { success: false, error: 'No se pudo confirmar la creacion del cliente. Verifica manualmente en el CRM.' };
   }
 
   console.log(`CRM: client created "${nombre}" (CLID=${clientId})`);
