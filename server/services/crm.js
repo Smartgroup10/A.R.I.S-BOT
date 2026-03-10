@@ -1891,6 +1891,16 @@ async function createClient({ nombre, cif, tipoNif, razonSocial, calle, provinci
   const createText = await resCreate.text();
   console.log(`CRM createClient: Step 3 — len=${createText.length}, redirect=${createText.includes('InicioSMS')}`);
 
+  // Detailed diagnostics of save response
+  const allClids = [...createText.matchAll(/CLID[^a-zA-Z]*?["=]\s*["']?(\d+)/g)];
+  console.log(`CRM createClient: Step 3 — all CLID refs: ${[...new Set(allClids.map(m => m[1]))].join(', ') || 'none'}`);
+  const allErrors = [...createText.matchAll(/MensajeError\(["']([^"']+)["']\)/g)];
+  console.log(`CRM createClient: Step 3 — MensajeError calls: ${allErrors.map(m => m[1]).join(' | ') || 'none'}`);
+  const allInfos = [...createText.matchAll(/MensajeInfo\(["']([^"']+)["']\)/g)];
+  console.log(`CRM createClient: Step 3 — MensajeInfo calls: ${allInfos.map(m => m[1]).join(' | ') || 'none'}`);
+  const edFuncMatch = createText.match(/name=["']?EdFunction["']?[^>]*value=["']([^"']*)["']/i);
+  console.log(`CRM createClient: Step 3 — EdFunction in response: ${edFuncMatch ? edFuncMatch[1] : 'not found'}`);
+
   // If save also redirected to InicioSMS, 2FA expired mid-flow
   if (createText.includes('InicioSMS')) {
     twoFAValidated = false;
