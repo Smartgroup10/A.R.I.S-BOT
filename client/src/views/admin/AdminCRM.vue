@@ -1,5 +1,5 @@
 <script setup>
-import { onMounted, ref, watch } from 'vue'
+import { onMounted, ref, computed, watch } from 'vue'
 import { useAdminStore } from '../../stores/admin'
 
 const admin = useAdminStore()
@@ -13,9 +13,47 @@ const clientSearch = ref('')
 const selectedClient = ref(null)
 let searchTimer = null
 
+// Ticket dashboard helpers
+const estadoColors = {
+  'En operador': 'bg-blue-500',
+  'En espera de cliente': 'bg-yellow-500',
+  'En espera de proveedor': 'bg-orange-500',
+  'Nuevo': 'bg-cyan-500',
+  'Cerrado': 'bg-gray-500',
+  'Resuelto': 'bg-green-500'
+}
+const prioridadLabels = { '0': 'Normal', '1': 'Alta', '2': 'Urgente' }
+const prioridadColors = { '0': 'bg-gray-500', '1': 'bg-yellow-500', '2': 'bg-red-500' }
+
+function getEstadoColor(estado) {
+  return estadoColors[estado] || 'bg-gray-500'
+}
+
+const sortedEstados = computed(() => {
+  if (!admin.crmTicketStats?.por_estado) return []
+  return Object.entries(admin.crmTicketStats.por_estado).sort((a, b) => b[1] - a[1])
+})
+const sortedAreas = computed(() => {
+  if (!admin.crmTicketStats?.por_area) return []
+  return Object.entries(admin.crmTicketStats.por_area).sort((a, b) => b[1] - a[1])
+})
+const sortedTemas = computed(() => {
+  if (!admin.crmTicketStats?.por_tema) return []
+  return Object.entries(admin.crmTicketStats.por_tema).sort((a, b) => b[1] - a[1]).slice(0, 8)
+})
+const maxEstado = computed(() => sortedEstados.value.length ? sortedEstados.value[0][1] : 1)
+const maxArea = computed(() => sortedAreas.value.length ? sortedAreas.value[0][1] : 1)
+const maxTema = computed(() => sortedTemas.value.length ? sortedTemas.value[0][1] : 1)
+
+const urgentCount = computed(() => {
+  if (!admin.crmTicketStats?.por_prioridad) return 0
+  return (admin.crmTicketStats.por_prioridad['2'] || 0) + (admin.crmTicketStats.por_prioridad['1'] || 0)
+})
+
 onMounted(() => {
   admin.loadCRM2FAStatus()
   admin.loadCRMClients('')
+  admin.loadCRMTicketStats()
 })
 
 // Debounced client search
@@ -208,6 +246,152 @@ async function handleValidate() {
           <li>Crear clientes requiere 2FA porque usa paginas JSP del CRM directamente.</li>
           <li>La verificacion dura ~25 minutos. Cuando expire, se solicitara de nuevo al intentar crear un cliente.</li>
         </ul>
+      </div>
+
+      <!-- ===== Ticket Dashboard ===== -->
+      <div class="border-t border-[#252b45] pt-8 mb-8">
+        <div class="flex items-center justify-between mb-4">
+          <h2 class="text-xl font-bold text-white">Dashboard de Tickets</h2>
+          <button
+            @click="admin.loadCRMTicketStats()"
+            :disabled="admin.crmTicketStatsLoading"
+            class="px-3 py-1.5 bg-[#252b45] text-gray-300 rounded-lg text-xs hover:bg-[#333b55] transition-colors flex items-center gap-1.5 disabled:opacity-50"
+          >
+            <svg :class="admin.crmTicketStatsLoading ? 'animate-spin' : ''" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+            </svg>
+            Actualizar
+          </button>
+        </div>
+
+        <!-- Loading -->
+        <div v-if="admin.crmTicketStatsLoading && !admin.crmTicketStats" class="text-gray-400 text-sm py-8 text-center">
+          Cargando estadisticas de tickets...
+        </div>
+
+        <!-- Error -->
+        <div v-else-if="admin.crmTicketStats?.error" class="px-4 py-3 bg-red-900/20 border border-red-700/30 rounded-lg text-sm text-red-300">
+          {{ admin.crmTicketStats.error }}
+        </div>
+
+        <!-- Stats content -->
+        <template v-else-if="admin.crmTicketStats">
+          <!-- Stat cards -->
+          <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+            <div class="bg-[#1a1f36] rounded-xl border border-[#252b45] p-5">
+              <div class="text-xs text-gray-400 uppercase tracking-wider mb-1">Total tickets</div>
+              <div class="text-3xl font-bold text-white">{{ admin.crmTicketStats.total?.toLocaleString() }}</div>
+            </div>
+            <div class="bg-[#1a1f36] rounded-xl border border-[#252b45] p-5">
+              <div class="text-xs text-gray-400 uppercase tracking-wider mb-1">Abiertos</div>
+              <div class="text-3xl font-bold text-cyan-400">{{ admin.crmTicketStats.abiertos?.toLocaleString() }}</div>
+            </div>
+            <div class="bg-[#1a1f36] rounded-xl border border-[#252b45] p-5">
+              <div class="text-xs text-gray-400 uppercase tracking-wider mb-1">Cerrados</div>
+              <div class="text-3xl font-bold text-gray-400">{{ admin.crmTicketStats.cerrados?.toLocaleString() }}</div>
+            </div>
+            <div class="bg-[#1a1f36] rounded-xl border border-[#252b45] p-5">
+              <div class="text-xs text-gray-400 uppercase tracking-wider mb-1">Alta + Urgente</div>
+              <div class="text-3xl font-bold" :class="urgentCount > 0 ? 'text-red-400' : 'text-green-400'">{{ urgentCount }}</div>
+            </div>
+          </div>
+
+          <!-- Charts row -->
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+            <!-- Por estado -->
+            <div class="bg-[#1a1f36] rounded-xl border border-[#252b45] p-5">
+              <div class="text-sm font-semibold text-gray-300 mb-3">Por estado</div>
+              <div class="space-y-2">
+                <div v-for="[estado, count] in sortedEstados" :key="estado" class="flex items-center gap-2">
+                  <div class="w-24 text-xs text-gray-400 truncate" :title="estado">{{ estado }}</div>
+                  <div class="flex-1 h-5 bg-[#252b45] rounded-full overflow-hidden">
+                    <div
+                      class="h-full rounded-full transition-all duration-500"
+                      :class="getEstadoColor(estado)"
+                      :style="{ width: (count / maxEstado * 100) + '%' }"
+                    ></div>
+                  </div>
+                  <div class="w-8 text-xs text-gray-300 text-right font-mono">{{ count }}</div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Por area -->
+            <div class="bg-[#1a1f36] rounded-xl border border-[#252b45] p-5">
+              <div class="text-sm font-semibold text-gray-300 mb-3">Por area</div>
+              <div class="space-y-2">
+                <div v-for="[area, count] in sortedAreas" :key="area" class="flex items-center gap-2">
+                  <div class="w-24 text-xs text-gray-400 truncate" :title="area">{{ area }}</div>
+                  <div class="flex-1 h-5 bg-[#252b45] rounded-full overflow-hidden">
+                    <div
+                      class="h-full rounded-full bg-blue-500 transition-all duration-500"
+                      :style="{ width: (count / maxArea * 100) + '%' }"
+                    ></div>
+                  </div>
+                  <div class="w-8 text-xs text-gray-300 text-right font-mono">{{ count }}</div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Por tema (top 8) -->
+            <div class="bg-[#1a1f36] rounded-xl border border-[#252b45] p-5">
+              <div class="text-sm font-semibold text-gray-300 mb-3">Por tema (top 8)</div>
+              <div class="space-y-2">
+                <div v-for="[tema, count] in sortedTemas" :key="tema" class="flex items-center gap-2">
+                  <div class="w-24 text-xs text-gray-400 truncate" :title="tema">{{ tema }}</div>
+                  <div class="flex-1 h-5 bg-[#252b45] rounded-full overflow-hidden">
+                    <div
+                      class="h-full rounded-full bg-purple-500 transition-all duration-500"
+                      :style="{ width: (count / maxTema * 100) + '%' }"
+                    ></div>
+                  </div>
+                  <div class="w-8 text-xs text-gray-300 text-right font-mono">{{ count }}</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Recent tickets table -->
+          <div v-if="admin.crmTicketStats.recientes?.length" class="bg-[#1a1f36] rounded-xl border border-[#252b45] overflow-hidden">
+            <div class="px-5 py-3 border-b border-[#252b45]">
+              <span class="text-sm font-semibold text-gray-300">Ultimos 10 tickets</span>
+            </div>
+            <div class="overflow-x-auto">
+              <table class="w-full text-sm">
+                <thead>
+                  <tr class="border-b border-[#252b45]">
+                    <th class="text-left px-4 py-2.5 text-xs text-gray-400 uppercase tracking-wider font-medium">ID</th>
+                    <th class="text-left px-4 py-2.5 text-xs text-gray-400 uppercase tracking-wider font-medium">Fecha</th>
+                    <th class="text-left px-4 py-2.5 text-xs text-gray-400 uppercase tracking-wider font-medium">Cliente</th>
+                    <th class="text-left px-4 py-2.5 text-xs text-gray-400 uppercase tracking-wider font-medium">Descripcion</th>
+                    <th class="text-left px-4 py-2.5 text-xs text-gray-400 uppercase tracking-wider font-medium">Estado</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="t in admin.crmTicketStats.recientes" :key="t.id" class="border-b border-[#252b45]/50 hover:bg-[#252b45]/30">
+                    <td class="px-4 py-2.5 text-cyan-400 font-mono text-xs">{{ t.id }}</td>
+                    <td class="px-4 py-2.5 text-gray-300 text-xs whitespace-nowrap">{{ t.fecha }} {{ t.hora }}</td>
+                    <td class="px-4 py-2.5 text-white text-xs max-w-[150px] truncate">{{ t.cliente }}</td>
+                    <td class="px-4 py-2.5 text-gray-400 text-xs max-w-[250px] truncate">{{ t.descripcion }}</td>
+                    <td class="px-4 py-2.5">
+                      <span class="px-2 py-0.5 rounded-full text-xs font-medium"
+                        :class="{
+                          'bg-blue-900/30 text-blue-400': t.estado === 'En operador',
+                          'bg-yellow-900/30 text-yellow-400': t.estado === 'En espera de cliente',
+                          'bg-orange-900/30 text-orange-400': t.estado === 'En espera de proveedor',
+                          'bg-cyan-900/30 text-cyan-400': t.estado === 'Nuevo',
+                          'bg-green-900/30 text-green-400': t.estado === 'Resuelto' || t.estado === 'Cerrado',
+                          'bg-gray-700/30 text-gray-400': !['En operador','En espera de cliente','En espera de proveedor','Nuevo','Resuelto','Cerrado'].includes(t.estado)
+                        }">
+                        {{ t.estado || '-' }}
+                      </span>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </template>
       </div>
 
       <!-- ===== Client Listing ===== -->

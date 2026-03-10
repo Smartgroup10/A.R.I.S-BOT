@@ -188,6 +188,14 @@ export async function fetchCRMClients(query = '') {
   return res.json()
 }
 
+// --- CRM Ticket Stats ---
+
+export async function fetchCRMTicketStats() {
+  const res = await fetch(`${API_BASE}/crm-tickets/stats`, { headers: authHeaders() })
+  handleUnauthorized(res)
+  return res.json()
+}
+
 // --- CRM 2FA ---
 
 export async function fetchCRM2FAStatus() {

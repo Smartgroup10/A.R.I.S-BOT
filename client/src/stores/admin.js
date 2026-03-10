@@ -12,6 +12,8 @@ export const useAdminStore = defineStore('admin', () => {
   const apiUsage = ref(null)
   const passboltStatus = ref(null)
   const crm2FAStatus = ref(null)
+  const crmTicketStats = ref(null)
+  const crmTicketStatsLoading = ref(false)
   const crmClients = ref([])
   const crmClientsTotal = ref(0)
   const crmClientsLoading = ref(false)
@@ -130,6 +132,17 @@ export const useAdminStore = defineStore('admin', () => {
     }
   }
 
+  async function loadCRMTicketStats() {
+    crmTicketStatsLoading.value = true
+    try {
+      crmTicketStats.value = await adminApi.fetchCRMTicketStats()
+    } catch (err) {
+      console.error('Error loading CRM ticket stats:', err)
+    } finally {
+      crmTicketStatsLoading.value = false
+    }
+  }
+
   async function loadCRMClients(query = '') {
     crmClientsLoading.value = true
     try {
@@ -189,6 +202,9 @@ export const useAdminStore = defineStore('admin', () => {
     loadAuditLog,
     passboltStatus,
     loadPassboltStatus,
+    crmTicketStats,
+    crmTicketStatsLoading,
+    loadCRMTicketStats,
     crmClients,
     crmClientsTotal,
     crmClientsLoading,

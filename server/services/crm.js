@@ -1961,6 +1961,61 @@ async function createClient({ nombre, cif, tipoNif, razonSocial, calle, provinci
   };
 }
 
+/**
+ * Get ticket dashboard stats for admin panel.
+ * Fetches open + closed tickets and aggregates by estado, area, tema, prioridad.
+ */
+async function getTicketDashboardStats() {
+  // Fetch open tickets (cached) and closed tickets in parallel
+  const [openTickets, closedTickets] = await Promise.all([
+    getTickets(),
+    fetchTickets({ cerrado: '1' }).catch(() => [])
+  ]);
+
+  const allTickets = [...openTickets, ...closedTickets];
+
+  const por_estado = {};
+  const por_area = {};
+  const por_tema = {};
+  const por_prioridad = {};
+
+  for (const t of allTickets) {
+    if (t.estado) por_estado[t.estado] = (por_estado[t.estado] || 0) + 1;
+    if (t.area) por_area[t.area] = (por_area[t.area] || 0) + 1;
+    if (t.tema) por_tema[t.tema] = (por_tema[t.tema] || 0) + 1;
+    const p = String(t.prioridad || 0);
+    por_prioridad[p] = (por_prioridad[p] || 0) + 1;
+  }
+
+  // Sort recent tickets by date+time descending
+  const sorted = [...allTickets].sort((a, b) => {
+    const da = (a.fecha || '') + (a.hora || '');
+    const db = (b.fecha || '') + (b.hora || '');
+    return db.localeCompare(da);
+  });
+
+  const recientes = sorted.slice(0, 10).map(t => ({
+    id: t.id,
+    fecha: t.fecha,
+    hora: t.hora,
+    cliente: t.cliente,
+    descripcion: (t.descripcion || '').substring(0, 120),
+    estado: t.estado,
+    prioridad: t.prioridad
+  }));
+
+  return {
+    total: allTickets.length,
+    abiertos: openTickets.length,
+    cerrados: closedTickets.length,
+    por_estado,
+    por_area,
+    por_tema,
+    por_prioridad,
+    recientes
+  };
+}
+
 module.exports = {
   isConfigured,
   getTickets,
@@ -1991,5 +2046,6 @@ module.exports = {
   send2FA,
   validate2FA,
   check2FARequired,
-  suggestTicketClassification
+  suggestTicketClassification,
+  getTicketDashboardStats
 };

@@ -424,6 +424,22 @@ router.get('/crm-clients', async (req, res) => {
   }
 });
 
+// --- CRM Ticket Stats ---
+
+// GET /api/admin/crm-tickets/stats — ticket dashboard stats
+router.get('/crm-tickets/stats', async (req, res) => {
+  try {
+    if (!crm.isConfigured()) {
+      return res.json({ error: 'CRM no configurado' });
+    }
+    const stats = await crm.getTicketDashboardStats();
+    res.json(stats);
+  } catch (err) {
+    console.error('Admin CRM ticket stats error:', err);
+    res.status(500).json({ error: 'Error obteniendo estadísticas de tickets' });
+  }
+});
+
 // --- CRM 2FA Management ---
 
 // GET /api/admin/crm-2fa/status — check 2FA status
