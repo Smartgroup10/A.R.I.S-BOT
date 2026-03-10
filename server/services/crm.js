@@ -1908,13 +1908,11 @@ async function createClient({ nombre, cif, tipoNif, razonSocial, calle, provinci
     return { success: false, error: 'La sesion 2FA del CRM expiro durante el guardado. Complete el 2FA de nuevo desde el panel de administracion.' };
   }
 
-  // Check for server-side save errors — only match errors that run on page load
-  // (inside $(document).ready or inline script), NOT inside function definitions
-  const docReadyBlock = createText.match(/\$\(document\)\.ready\(function\(\)\s*\{([\s\S]{0,2000}?)\}\)/);
-  const inlineError = docReadyBlock ? docReadyBlock[1].match(/MensajeError\(["']([^"']+)["']\)/) : null;
-  if (inlineError) {
-    const cleanError = inlineError[1].replace(/<br\s*\/?>/gi, '; ').replace(/<[^>]*>/g, '');
-    console.log(`CRM createClient: Step 3 INLINE ERROR: ${cleanError}`);
+  // Check for save errors — look for "Error de Base de Datos" or "clientes.save" in MensajeError calls
+  const saveError = allErrors.find(m => m[1].includes('Base de Datos') || m[1].includes('clientes.save') || m[1].includes('no puede estar en blanco'));
+  if (saveError) {
+    const cleanError = saveError[1].replace(/<br\s*\/?>/gi, '; ').replace(/<[^>]*>/g, '');
+    console.log(`CRM createClient: Step 3 SAVE ERROR: ${cleanError}`);
     return { success: false, error: cleanError };
   }
 

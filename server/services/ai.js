@@ -661,14 +661,14 @@ const CRM_TOOLS = [
         },
         cod_postal: {
           type: 'string',
-          description: 'Código postal (opcional, ej: "28006")'
+          description: 'Codigo postal del cliente (OBLIGATORIO, ej: "28006")'
         },
         poblacion: {
           type: 'string',
-          description: 'Población/Ciudad (opcional, ej: "Madrid")'
+          description: 'Poblacion/Ciudad (opcional, ej: "Madrid")'
         }
       },
-      required: ['nombre', 'cif', 'tipo_nif', 'razon_social', 'calle', 'provincia', 'municipio', 'cargo', 'iban', 'contacto', 'telefono', 'email']
+      required: ['nombre', 'cif', 'tipo_nif', 'razon_social', 'calle', 'provincia', 'municipio', 'cargo', 'iban', 'contacto', 'telefono', 'email', 'cod_postal']
     }
   }
 ];
