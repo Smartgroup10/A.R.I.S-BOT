@@ -396,6 +396,34 @@ router.get('/audit', (req, res) => {
   }
 });
 
+// --- CRM Clients ---
+
+// GET /api/admin/crm-clients?q=<search> — list clients from CRM
+router.get('/crm-clients', async (req, res) => {
+  try {
+    if (!crm.isConfigured()) {
+      return res.json({ clients: [], error: 'CRM no configurado' });
+    }
+    const query = req.query.q || '';
+    const results = await crm.fetchClients(query);
+    const clients = results.slice(0, 100).map(c => ({
+      id: c.id,
+      nombre: c.nombre,
+      cif: c.cif,
+      distribuidor: c.distribuidor,
+      lineas: c.lineas,
+      estado: c.estado,
+      contacto: c.contacto,
+      fecha: c.fecha,
+      ultima_interaccion_fecha: c.ultima_interaccion_fecha
+    }));
+    res.json({ total: results.length, clients });
+  } catch (err) {
+    console.error('Admin CRM clients error:', err);
+    res.status(500).json({ error: 'Error obteniendo clientes del CRM' });
+  }
+});
+
 // --- CRM 2FA Management ---
 
 // GET /api/admin/crm-2fa/status — check 2FA status

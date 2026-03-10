@@ -374,6 +374,8 @@ router.post('/', async (req, res) => {
           id: c.id,
           nombre: c.nombre,
           cif: c.cif,
+          distribuidor: c.distribuidor,
+          lineas: c.lineas,
           estado: c.estado,
           contacto: c.contacto
         }));

@@ -1,5 +1,5 @@
 <script setup>
-import { onMounted, ref } from 'vue'
+import { onMounted, ref, watch } from 'vue'
 import { useAdminStore } from '../../stores/admin'
 
 const admin = useAdminStore()
@@ -8,9 +8,28 @@ const sending = ref(false)
 const validating = ref(false)
 const message = ref(null) // { type: 'success'|'error', text: '' }
 
+// Client search
+const clientSearch = ref('')
+const selectedClient = ref(null)
+let searchTimer = null
+
 onMounted(() => {
   admin.loadCRM2FAStatus()
+  admin.loadCRMClients('')
 })
+
+// Debounced client search
+watch(clientSearch, (val) => {
+  if (searchTimer) clearTimeout(searchTimer)
+  searchTimer = setTimeout(() => {
+    admin.loadCRMClients(val.trim())
+    selectedClient.value = null
+  }, 400)
+})
+
+function selectClient(client) {
+  selectedClient.value = selectedClient.value?.id === client.id ? null : client
+}
 
 async function handleSend() {
   sending.value = true
@@ -175,13 +194,13 @@ async function handleValidate() {
       </div>
 
       <!-- Info box when not required -->
-      <div v-if="!admin.crm2FAStatus.required && !admin.crm2FAStatus.validated" class="px-4 py-4 bg-[#1a1f36] border border-[#252b45] rounded-lg text-sm text-gray-400">
+      <div v-if="!admin.crm2FAStatus.required && !admin.crm2FAStatus.validated" class="px-4 py-4 bg-[#1a1f36] border border-[#252b45] rounded-lg text-sm text-gray-400 mb-6">
         <p class="font-medium text-gray-300 mb-2">IP reconocida</p>
         <p>El CRM no requiere 2FA desde esta IP. Todas las funciones estan disponibles.</p>
       </div>
 
       <!-- General info -->
-      <div class="px-4 py-4 bg-[#1a1f36] border border-[#252b45] rounded-lg text-sm text-gray-400">
+      <div class="px-4 py-4 bg-[#1a1f36] border border-[#252b45] rounded-lg text-sm text-gray-400 mb-8">
         <p class="font-medium text-gray-300 mb-2">Sobre la verificacion 2FA del CRM</p>
         <ul class="space-y-1 list-disc list-inside">
           <li>El CRM JD Systems exige 2FA por SMS cuando se accede desde una IP no reconocida.</li>
@@ -189,6 +208,126 @@ async function handleValidate() {
           <li>Crear clientes requiere 2FA porque usa paginas JSP del CRM directamente.</li>
           <li>La verificacion dura ~25 minutos. Cuando expire, se solicitara de nuevo al intentar crear un cliente.</li>
         </ul>
+      </div>
+
+      <!-- ===== Client Listing ===== -->
+      <div class="border-t border-[#252b45] pt-8">
+        <div class="flex items-center justify-between mb-4">
+          <h2 class="text-xl font-bold text-white">Clientes CRM</h2>
+          <span v-if="admin.crmClientsTotal > 0" class="text-sm text-gray-400">
+            {{ admin.crmClientsTotal }} resultado{{ admin.crmClientsTotal !== 1 ? 's' : '' }}
+          </span>
+        </div>
+
+        <!-- Search -->
+        <div class="mb-4">
+          <div class="relative">
+            <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+            </svg>
+            <input
+              v-model="clientSearch"
+              type="text"
+              placeholder="Buscar por nombre, CIF, telefono..."
+              class="w-full pl-10 pr-4 py-2.5 bg-[#1a1f36] border border-[#252b45] rounded-lg text-white text-sm focus:outline-none focus:border-cyan-400 placeholder-gray-500"
+            />
+            <svg v-if="admin.crmClientsLoading" class="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-cyan-400 animate-spin" fill="none" viewBox="0 0 24 24">
+              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"/>
+            </svg>
+          </div>
+        </div>
+
+        <!-- Table -->
+        <div class="bg-[#1a1f36] rounded-xl border border-[#252b45] overflow-hidden">
+          <div class="overflow-x-auto">
+            <table class="w-full text-sm">
+              <thead>
+                <tr class="border-b border-[#252b45]">
+                  <th class="text-left px-4 py-3 text-xs text-gray-400 uppercase tracking-wider font-medium">ID</th>
+                  <th class="text-left px-4 py-3 text-xs text-gray-400 uppercase tracking-wider font-medium">Nombre</th>
+                  <th class="text-left px-4 py-3 text-xs text-gray-400 uppercase tracking-wider font-medium">CIF</th>
+                  <th class="text-left px-4 py-3 text-xs text-gray-400 uppercase tracking-wider font-medium">Distribuidor</th>
+                  <th class="text-left px-4 py-3 text-xs text-gray-400 uppercase tracking-wider font-medium">Lineas</th>
+                  <th class="text-left px-4 py-3 text-xs text-gray-400 uppercase tracking-wider font-medium">Estado</th>
+                  <th class="text-left px-4 py-3 text-xs text-gray-400 uppercase tracking-wider font-medium">Contacto</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-if="admin.crmClientsLoading && admin.crmClients.length === 0">
+                  <td colspan="7" class="px-4 py-8 text-center text-gray-500">Cargando clientes...</td>
+                </tr>
+                <tr v-else-if="admin.crmClients.length === 0">
+                  <td colspan="7" class="px-4 py-8 text-center text-gray-500">No se encontraron clientes</td>
+                </tr>
+                <tr
+                  v-for="client in admin.crmClients"
+                  :key="client.id"
+                  @click="selectClient(client)"
+                  class="border-b border-[#252b45]/50 hover:bg-[#252b45]/40 cursor-pointer transition-colors"
+                  :class="selectedClient?.id === client.id ? 'bg-[#252b45]/60' : ''"
+                >
+                  <td class="px-4 py-3 text-cyan-400 font-mono text-xs">{{ client.id }}</td>
+                  <td class="px-4 py-3 text-white font-medium">{{ client.nombre }}</td>
+                  <td class="px-4 py-3 text-gray-300 font-mono text-xs">{{ client.cif }}</td>
+                  <td class="px-4 py-3 text-gray-400">{{ client.distribuidor }}</td>
+                  <td class="px-4 py-3 text-gray-300 text-center">{{ client.lineas }}</td>
+                  <td class="px-4 py-3">
+                    <span class="px-2 py-0.5 rounded-full text-xs font-medium"
+                      :class="client.estado === 'Alta' ? 'bg-green-900/30 text-green-400' : client.estado === 'Baja' ? 'bg-red-900/30 text-red-400' : 'bg-gray-700/30 text-gray-400'">
+                      {{ client.estado || '-' }}
+                    </span>
+                  </td>
+                  <td class="px-4 py-3 text-gray-400 text-xs max-w-[200px] truncate">{{ client.contacto }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Selected client detail -->
+        <div v-if="selectedClient" class="mt-4 bg-[#1a1f36] rounded-xl border border-cyan-800/30 p-5">
+          <h3 class="text-lg font-semibold text-white mb-3">{{ selectedClient.nombre }}</h3>
+          <div class="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm">
+            <div>
+              <span class="text-gray-500 text-xs uppercase">ID</span>
+              <p class="text-cyan-400 font-mono">{{ selectedClient.id }}</p>
+            </div>
+            <div>
+              <span class="text-gray-500 text-xs uppercase">CIF/NIF</span>
+              <p class="text-gray-200 font-mono">{{ selectedClient.cif || '-' }}</p>
+            </div>
+            <div>
+              <span class="text-gray-500 text-xs uppercase">Distribuidor</span>
+              <p class="text-gray-200">{{ selectedClient.distribuidor || '-' }}</p>
+            </div>
+            <div>
+              <span class="text-gray-500 text-xs uppercase">Lineas</span>
+              <p class="text-gray-200">{{ selectedClient.lineas }}</p>
+            </div>
+            <div>
+              <span class="text-gray-500 text-xs uppercase">Estado</span>
+              <p :class="selectedClient.estado === 'Alta' ? 'text-green-400' : 'text-red-400'">{{ selectedClient.estado || '-' }}</p>
+            </div>
+            <div>
+              <span class="text-gray-500 text-xs uppercase">Fecha Alta</span>
+              <p class="text-gray-200">{{ selectedClient.fecha || '-' }}</p>
+            </div>
+            <div class="col-span-2">
+              <span class="text-gray-500 text-xs uppercase">Contacto</span>
+              <p class="text-gray-200">{{ selectedClient.contacto || '-' }}</p>
+            </div>
+            <div>
+              <span class="text-gray-500 text-xs uppercase">Ultima interaccion</span>
+              <p class="text-gray-200">{{ selectedClient.ultima_interaccion_fecha || '-' }}</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Truncation notice -->
+        <div v-if="admin.crmClientsTotal > 100" class="mt-3 text-xs text-gray-500 text-center">
+          Mostrando 100 de {{ admin.crmClientsTotal }} clientes. Usa la busqueda para filtrar.
+        </div>
       </div>
     </template>
   </div>

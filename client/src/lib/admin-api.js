@@ -179,6 +179,15 @@ export async function fetchPassboltStatus() {
   return res.json()
 }
 
+// --- CRM Clients ---
+
+export async function fetchCRMClients(query = '') {
+  const q = encodeURIComponent(query)
+  const res = await fetch(`${API_BASE}/crm-clients?q=${q}`, { headers: authHeaders() })
+  handleUnauthorized(res)
+  return res.json()
+}
+
 // --- CRM 2FA ---
 
 export async function fetchCRM2FAStatus() {
